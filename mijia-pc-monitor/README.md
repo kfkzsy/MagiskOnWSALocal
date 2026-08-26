@@ -36,25 +36,75 @@ CPU 和 GPU 的**占用率、功耗、温度**推送到它的段码屏上轮播�
 * `CMD_EXT_DATA (0x22)`：把外部数值交给固件去画；
 * `CMD_LCD_DUMP (0x60)`：直接写段码屏显存，于是可以画出固件本身画不出的字母标签。
 
-### 刷固件步骤
+### 刷什么固件
 
-1. 用 **Chrome / Edge**（需要 Web Bluetooth，Firefox 和 Safari 不行）打开
-   [TelinkMiFlasher.html](https://pvvx.github.io/ATC_MiThermometer/TelinkMiFlasher.html)；
-2. 点 **Connect**，选中你的 `LYWSD03MMC`；
-3. 点 **Do Activation** 获取 bindkey（首次必须做，否则刷完设备会变砖）；
-4. 选 `ATC_v??_LYWSD03MMC.bin`，点 **Start Flashing**，等进度走完；
-5. 刷完设备广播名会变成 `ATC_xxxxxx`，说明成功了。
+刷写全程 **OTA**（蓝牙无线），不用拆机、不用编程器、不用焊线，浏览器里就能完成。
+**随时可以刷回原厂固件**（刷机页里也提供原厂固件），所以这一步是可逆的。
 
-> 刷机有变砖风险，且会让设备脱离米家 App。开始之前请确认你能接受这一点。
+固件文件不需要手动下载——刷机页会自动识别你的硬件版本并给出对应的版本按钮。
 
-固件设置里**不要开启 PinCode**，本程序不处理配对码；另外确认 `Connect`
-选项没被关掉，否则设备不接受连接。
+代价是：自定义固件不被米家 App 支持，设备刷完后就从米家里脱离了。
+
+### 刷入步骤
+
+**1. 准备浏览器**
+
+需要支持 Web Bluetooth 的浏览器：**Chrome / Edge / Opera**。Firefox 和 Safari 不行。
+
+在 **Windows / Linux / Android** 上还必须先打开实验性特性：地址栏访问
+`chrome://flags/#enable-experimental-web-platform-features`（Edge 上是
+`edge://flags/#enable-experimental-web-platform-features`），设为 **Enabled**，
+然后**重启浏览器**。漏掉这一步的典型症状是点 Connect 后弹窗里根本扫不到设备。
+
+**2. 连接设备**
+
+打开 [TelinkMiFlasher.html](https://pvvx.github.io/ATC_MiThermometer/TelinkMiFlasher.html)，
+点 **Connect**，在浏览器弹出的设备列表里选中 `LYWSD03MMC` 配对。
+
+> 带按键的型号（CGG1-M、MJWSD05MMC 等）在连接前需要长按按键清除旧的绑定关系。
+> LYWSD03MMC 没有按键，跳过即可。
+
+**3. Do Activation**
+
+连上之后页面会出现 **Do Activation** 按钮，点它走完密钥获取流程。
+米家的 OTA 是加密保护的，**不做这一步刷不进去**。
+
+**4. 刷写**
+
+点页面上的 **Custom Firmware ver x.x** 按钮（它已经按你的硬件版本匹配好了），
+然后点 **Start Flashing**，等进度条走完。
+
+**5. 确认**
+
+刷完后设备的蓝牙广播名会变成 `ATC_xxxxxx`，说明成功了。
+
+### 刷完之后的设置
+
+还是在同一个页面：**Connect** 到 `ATC_xxxxxx` → 改配置 → **Send Config**。
+
+对本项目来说只有两点要求：
+
+* **不要设置 PinCode** —— 本程序不处理配对码；
+* 保持设备可连接（`Connect` 选项别关掉），否则它不接受连接。
+
+其余选项（温湿度校准、Advertising Type、屏幕轮播等）本项目都不依赖，随意。
+
+### 买设备前要知道的事（2025 年以后）
+
+* 2025 年 3 月后在售的 **B1.5 / B1.6 版本不建议买**：功耗偏高、屏幕对比度差。
+  目前公认正常的硬件版本是 **B1.4 / B1.7 / B1.9 / B2.0**（其中只有 B1.9 支持关屏省电）。
+* **新的 B1.6 出厂固件与老版本不兼容**，且固件 2.1.1_0159 起需要先在米家 App 注册
+  获取 ID，首次 OTA 要按
+  [issue #602](https://github.com/pvvx/ATC_MiThermometer/issues/602) 的说明操作。
+* 手上已有的老设备不受影响，正常按上面的步骤刷即可。
 
 ### 支持的型号
 
-`lcd` 模式（带文字标签）是按 LYWSD03MMC 的 6 字节显存布局写死的，只适用于该型号。
+`lcd` 模式（带文字标签）是按 LYWSD03MMC 的 6 字节显存布局写死的。好在**所有 B1.x
+硬件版本的显存都是 6 字节**，所以这个模式对哪一版 LYWSD03MMC 都适用。
+
 pvvx 支持的其它带屏型号（MHO-C401、CGG1、MJWSD05MMC 等）显存布局不同，
-程序会自动探测并退回到 `ext` 模式——数值照常显示，只是没有文字标签。
+程序会连接时探测显存大小并自动退回 `ext` 模式——数值照常显示，只是没有文字标签。
 
 ---
 
