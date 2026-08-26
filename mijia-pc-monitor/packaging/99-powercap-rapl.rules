@@ -1,0 +1,9 @@
+# 让普通用户能读 RAPL 能量计数器，从而拿到 CPU 功耗。
+# 安装：
+#   sudo cp packaging/99-powercap-rapl.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules && sudo udevadm trigger
+#
+# 背景：内核 5.10 起 energy_uj 默认只有 root 可读（CVE-2020-8694，
+# 能量读数可被用于侧信道推断）。桌面机上放开给本地用户通常可以接受，
+# 介意的话就别装这条规则——程序会自动降级，只是不显示功耗而已。
+SUBSYSTEM=="powercap", ACTION=="add", RUN+="/bin/chmod -R a+r /sys/devices/virtual/powercap"
