@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mijia-pc-monitor"
+version = "1.0.0"
+description = "把米家蓝牙温湿度计 (LYWSD03MMC) 改造成 PC 性能监视器：通过蓝牙显示 CPU / GPU 的占用率、功耗和温度"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "AGPL-3.0-or-later" }
+keywords = ["bluetooth", "ble", "lywsd03mmc", "mijia", "hardware-monitor"]
+classifiers = [
+    "Environment :: Console",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: System :: Monitoring",
+]
+dependencies = [
+    "bleak>=3.0",   # 跨平台 BLE；3.0 起用 bluez={"adapter": ...} 指定适配器
+    "psutil>=5.9",  # CPU 占用率，Linux 下还负责温度
+]
+
+[project.optional-dependencies]
+nvidia = ["nvidia-ml-py>=12.0"]  # 没有它会退回调用 nvidia-smi
+windows = ["wmi>=1.5"]           # 从 LibreHardwareMonitor 取功耗和温度
+
+[project.scripts]
+mijia-pc-monitor = "mijia_pc_monitor.cli:main"
+
+[project.urls]
+"固件项目" = "https://github.com/pvvx/ATC_MiThermometer"
+
+[tool.setuptools.packages.find]
+include = ["mijia_pc_monitor*"]

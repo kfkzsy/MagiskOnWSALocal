@@ -1,0 +1,47 @@
+# mijia-pc-monitor 配置示例
+#
+# 放到下面任一位置即可被自动读取：
+#   ~/.config/mijia-pc-monitor/config.toml
+#   ./config.toml
+# 也可以用 `--config <路径>` 或环境变量 MIJIA_PC_MONITOR_CONFIG 指定。
+
+[device]
+# 设备地址。Linux / Windows 填 MAC，macOS 填系统分配的 UUID。
+# 用 `mijia-pc-monitor scan` 查看；留空则每次启动自动扫描并选信号最强的一台。
+address = "A4:C1:38:00:11:22"
+
+# 指定蓝牙适配器（仅 Linux 需要，多块网卡时有用）
+# adapter = "hci1"
+
+# 扫描时匹配的广播名前缀，pvvx 固件默认是 ATC_xxxxxx
+name_prefix = "ATC_"
+
+# 连接超时与扫描时长（秒）
+connect_timeout = 20.0
+scan_timeout = 8.0
+
+[display]
+# 显示模式：
+#   auto — 自动探测（LYWSD03MMC 用 lcd，其它型号用 ext），推荐
+#   lcd  — 直接写显存，小号数字区会显示 Cu/CP/Ct/Gu/GP/Gt 标签，仅 LYWSD03MMC
+#   ext  — 用固件自带的外部数据命令，没有文字标签，但兼容所有带屏型号
+mode = "auto"
+
+# 轮播的页面及顺序。可选：
+#   cpu_usage  CPU 占用率     cpu_power  CPU 功耗     cpu_temp  CPU 温度
+#   gpu_usage  GPU 占用率     gpu_power  GPU 功耗     gpu_temp  GPU 温度
+# 取不到数的页面会被自动跳过（比如核显机器上的 gpu_power）。
+pages = ["cpu_usage", "cpu_power", "cpu_temp", "gpu_usage", "gpu_power", "gpu_temp"]
+
+# 采样并刷新屏幕的周期（秒）。屏幕本身刷新不快，低于 1 秒没有意义，
+# 而且会明显增加设备耗电。
+interval = 2.0
+
+# 每一页停留多久（秒）
+dwell = 4.0
+
+# lcd 模式下是否点亮蓝牙图标，用来一眼确认连接还活着
+show_ble_icon = true
+
+[logging]
+level = "INFO"

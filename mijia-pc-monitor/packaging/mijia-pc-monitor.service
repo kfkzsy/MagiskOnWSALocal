@@ -1,0 +1,23 @@
+# 用户级 systemd 服务：
+#   mkdir -p ~/.config/systemd/user
+#   cp packaging/mijia-pc-monitor.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now mijia-pc-monitor
+#
+# 注意：CPU 功耗需要读 /sys/class/powercap/.../energy_uj，多数发行版上该文件
+# 只有 root 可读。要么按 README 里的 udev 规则放开权限（推荐），要么把这个
+# 单元装到系统级 /etc/systemd/system/ 并以 root 运行。
+
+[Unit]
+Description=米家温湿度计 PC 性能监视器
+After=bluetooth.target
+Wants=bluetooth.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/mijia-pc-monitor run
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

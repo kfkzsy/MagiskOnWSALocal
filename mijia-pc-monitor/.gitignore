@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+# 本地配置里会有设备 MAC，不要提交
+config.toml
