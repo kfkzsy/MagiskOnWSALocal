@@ -428,7 +428,7 @@ const PRESETS = {
     flower: 'lotus', seed: 3,
     bloom: { petals: [6, 8, 9], radius: 1.0, openness: 0.8, cup: 0.55, veins: 0.75, nod: 14, seeds: 19, fallen: 1 },
     palette: { base: '#fff6ee', petal: '#ffb3cd', tip: '#ff3f86', pod: '#d4e65c', stamen: '#ffc93d', stem: '#4c9a58', leaf: '#2b8d6b', water: '#86ccff', dragonfly: '#33d6c0', wing: '#9fe6ff' },
-    stem: { length: 1.22, bend: 0.05, thickness: 0.03 },
+    stem: { length: 1.36, bend: 0.05, thickness: 0.03 },
     leaves: { size: 0.66, tilt: 30, bud: true, scroll: true, floating: true, dew: 26 },
     fauna: { dragonfly: true },
     fiber: { fuzz: 0.12 },
@@ -783,8 +783,8 @@ function GEN() {
     const nod = (num(bl.nod, 14, -30, 30) * Math.PI) / 180, nSeed = Math.round(num(bl.seeds, 19, 0, 37)), nFallen = Math.round(num(bl.fallen, 1, 0, 3)), fuzz = num((cfg.fiber || {}).fuzz, 0.12, 0, 2);
     const layers = (Array.isArray(bl.petals) ? bl.petals : [6, 8, 9]).slice(0, 6).map((x) => Math.round(num(x, 8, 0, 24)));
     const C = { base: hex(pal.base, '#fff6ee'), petal: hex(pal.petal, '#ffb3cd'), tip: hex(pal.tip, '#ff3f86'), pod: hex(pal.pod, '#d4e65c'), stamen: hex(pal.stamen, '#ffc93d'), stem: hex(pal.stem, '#4c9a58'), leaf: hex(pal.leaf, '#2b8d6b'), water: hex(pal.water, '#86ccff'), fly: hex(pal.dragonfly, '#33d6c0'), wing: hex(pal.wing, '#9fe6ff') };
-    const sLen = num(st.length, 1.22, 0.4, 1.6), bend = num(st.bend, 0.05, -0.4, 0.4), thick = num(st.thickness, 0.03, 0.008, 0.08);
-    const Rl = num(lv.size, 0.66, 0, 0.8), tiltL = (num(lv.tilt, 30, -10, 60) * Math.PI) / 180, showBud = lv.bud !== false, showScroll = lv.scroll !== false, showFloat = lv.floating !== false;
+    const sLen = num(st.length, 1.36, 0.4, 1.6), bend = num(st.bend, 0.05, -0.4, 0.4), thick = num(st.thickness, 0.03, 0.008, 0.08);
+    const Rl = num(lv.size, 0.66, 0, 0.8), tiltL = (num(lv.tilt, 30, -10, 45) * Math.PI) / 180, showBud = lv.bud !== false, showScroll = lv.scroll !== false, showFloat = lv.floating !== false;
     const nDew = Rl > 0 ? Math.round(num(lv.dew, 26, 0, 60)) : 0, showFly = showBud && fa.dragonfly !== false;
     const W0 = -1.32; // water line
 
@@ -845,7 +845,7 @@ function GEN() {
         for (let k = 0; k < K; k++) {
           // staggered stations: particles of neighbouring fibres never line up into transverse rows
           const u = k ? clamp(((k - 1 + ph + (r() - 0.5) * 0.5) / (K - 1.5)) * uE, 0.004, uE) : 0, p = onPetal(o, u, v, 0), jt = fuzz * (0.0015 + 0.008 * u * u * u);
-          const gain = bright * clamp(hw(u), o.tipC, 1) * (o.claw + (1 - o.claw) * sstep(0.03, o.clawU, u)) * (1 + 0.5 * sstep(0.85, 1, Math.abs(v)));
+          const gain = bright * clamp(hw(u), o.tipC, 1) * (o.claw * sstep(0, 0.15, u) + (1 - o.claw) * sstep(0.03, o.clawU, u)) * (1 + 0.5 * sstep(0.85, 1, Math.abs(v)));
           b.pt(k, p[0] + g() * jt, p[1] + g() * jt, p[2] + g() * jt, shade(o, u, v, vein), gain, o.size * (0.5 + 0.4 * r()), o.flex * u * u, o.line, o.drift);
         }
         b.end();
@@ -854,7 +854,7 @@ function GEN() {
         const v = (j % 2 ? 1 : -1) * (0.97 + 0.03 * r()), bright = (0.8 + 0.3 * r()) * o.gain * 1.3, uE = 1 - 0.01 * r();
         for (let k = 0; k < K; k++) {
           const u = (k / (K - 1)) * uE, p = onPetal(o, u, v, 0.0015);
-          b.pt(k, p[0], p[1], p[2], shade(o, Math.min(1, u + 0.1), v, 0), bright * clamp(hw(u), o.tipC + 0.05, 1) * (o.claw + (1 - o.claw) * sstep(0.03, o.clawU, u)), o.size * 0.75, o.flex * u * u, Math.min(1, o.line * 1.4), o.drift);
+          b.pt(k, p[0], p[1], p[2], shade(o, Math.min(1, u + 0.1), v, 0), bright * clamp(hw(u), o.tipC + 0.05, 1) * (o.claw * sstep(0, 0.15, u) + (1 - o.claw) * sstep(0.03, o.clawU, u)), o.size * 0.75, o.flex * u * u, Math.min(1, o.line * 1.4), o.drift);
         }
         b.end();
       }
@@ -886,7 +886,7 @@ function GEN() {
 
     // ---- budget: the dragonfly and dew are counted structures, the rest splits by weight
     const nFly = showFly ? clamp(Math.round(b.S * 0.012), 70, 161) : 0, nPdew = layers.some((n) => n > 0) ? 3 : 0, nGut = nDew + nPdew;
-    const [nPet, nPod, nSta, nStem, nPrk, nPad, nFlt, nScr, nBud, nFal, nRip] = alloc(b.S - nFly - nGut, [0.42, 0.045, 0.055, 0.03, 0.004, Rl > 0 ? 0.15 : 0, showFloat ? 0.035 : 0, showScroll ? 0.028 : 0, showBud ? 0.06 : 0, 0.013 * nFallen, 0.06]);
+    const [nPet, nSep, nPod, nSta, nPol, nStem, nPrk, nPad, nFlt, nScr, nBud, nFal, nRip] = alloc(b.S - nFly - nGut, [0.42, 0.01, 0.045, 0.055, 0.0025, 0.03, 0.004, Rl > 0 ? 0.15 : 0, showFloat ? 0.035 : 0, showScroll ? 0.028 : 0, showBud ? 0.06 : 0, 0.02 * nFallen, 0.06]);
 
     // ---- the bloom, nodding toward the viewer
     const top = [bend * 0.4, W0 + sLen, 0], HF = tipped(top, nod), stemAt = bez([0, W0, 0], [top[0] - HF.y[0] * sLen * 0.45, top[1] - HF.y[1] * sLen * 0.45, top[2] - HF.y[2] * sLen * 0.45], top);
@@ -899,12 +899,20 @@ function GEN() {
         descs.push(petalDesc(HF, {
           az: ((j + 0.5 * (i % 2)) / n) * TAU + i * 0.37 + (r() - 0.5) * 0.1, r0: R * lerp(0.07, 0.1, t), y0: R * lerp(0.03, 0, t),
           len, wid: len * 0.3, th0, th1: th0 + open * lerp(0.3, 0.5, t), hood: lerp(0.35, 0.2, t), cup: cupK * lerp(1.15, 0.85, t), wrap: lerp(0.5, 0.3, t), twist: (r() - 0.5) * 0.12,
-          gain: 0.55 * lerp(0.45, 1, t), claw: lerp(0.1, 0.28, t), clawU: lerp(0.6, 0.4, t), cB: C.base, cM: mix(C.base, C.petal, lerp(0.6, 0.85, t)), tipAmt: lerp(0.8, 1, t),
+          gain: 0.55 * lerp(0.45, 1, t), claw: lerp(0.08, 0.28, t), clawU: lerp(0.65, 0.4, t), cB: C.base, cM: mix(C.base, C.petal, lerp(0.6, 0.85, t)), tipAmt: lerp(0.8, 1, t),
         }));
       }
     });
     b.part('petala');
     { const n = alloc(nPet, descs.map((d) => d.len * d.wid)); descs.forEach((d, i) => petal(d, n[i])); }
+    // four small green sepals, already turning back under the bloom
+    b.part('sepala');
+    {
+      const sep = [];
+      for (let j = 0; j < 4; j++) sep.push(petalDesc(HF, { az: (j / 4) * TAU + 0.4, r0: 0.05 * R, y0: -0.01 * R, len: 0.13 * R, wid: 0.05 * R, th0: 1.2, th1: 1.8, bend: 1.2, hood: 0, cup: 0.4, wave: 0.05, wrap: 0.3, veinN: 7, veinK: 0.4, cB: scale(C.stem, 0.5), cM: mix(C.stem, [0.8, 0.9, 0.5], 0.3), cT: mix(C.stem, C.tip, 0.35), tipAmt: 0.5, gain: 0.5, flex: 0.1 }));
+      const n = alloc(nSep, sep.map(() => 1));
+      sep.forEach((d, i) => petal(d, n[i]));
+    }
 
     // seed pod: an inverted cone with 24 ribs and a flat top pitted with seed sockets, each a dark well round a bright stigma
     b.part('receptaculum');
@@ -918,7 +926,7 @@ function GEN() {
         const onRib = r() < 0.75, a = onRib ? ((Math.floor(r() * 24) + g() * 0.05) / 24) * TAU : r() * TAU, bright = (onRib ? 1 : 0.45) * (0.7 + 0.4 * r());
         for (let k = 0; k < K; k++) {
           const q = k / (K - 1), rho = lerp(rb, rp, Math.pow(q, 0.8)) + 0.008 * R * Math.sin(Math.PI * q), p = put(HF, Math.cos(a) * rho, lerp(yb, yt, q), Math.sin(a) * rho);
-          b.pt(k, p[0], p[1], p[2], mix(scale(C.pod, 0.5), C.pod, q), 0.3 * bright * (0.5 + 0.5 * q), 0.6, 0, 0.5, 0);
+          b.pt(k, p[0], p[1], p[2], mix(scale(C.pod, 0.5), C.pod, q), 0.24 * bright * (0.4 + 0.6 * q), 0.55, 0, 0.6, 0);
         }
         b.end();
       }
@@ -963,15 +971,26 @@ function GEN() {
         let c = -0.22 + g() * 0.12;
         if (Math.abs(c) < 0.02) c = c < 0 ? -0.02 : 0.02;
         const sp = (t) => { const a = th + c * t; return put(HF, Math.cos(az) * (rho + (L * (Math.cos(th) - Math.cos(a))) / c), y0 + (L * (Math.sin(a) - Math.sin(th))) / c, Math.sin(az) * (rho + (L * (Math.cos(th) - Math.cos(a))) / c)); };
-        for (let k = 0; k < K; k++) { const t = (0.6 * k) / (K - 1), p = sp(t); b.pt(k, p[0], p[1], p[2], fil, 0.16 * bright, 0.45, t * 0.5, 0.45, 0); }
+        for (let k = 0; k < K; k++) { const t = (0.6 * k) / (K - 1), p = sp(t); b.pt(k, p[0], p[1], p[2], fil, 0.12 * bright * sstep(0, 0.2, t), 0.45, t * 0.5, 0.5, 0); }
         b.end();
         if (i + 1 >= nSta) break;
         for (let k = 0; k < K; k++) {
           const ap = k > 12, t = ap ? 0.97 + (0.07 * (k - 12)) / 3 : 0.6 + (0.37 * k) / 12, p = sp(t);
-          b.pt(k, p[0], p[1], p[2], ap ? app : C.stamen, (ap ? 0.42 : 0.3) * bright, ap ? 1 : 0.75, t * 0.5, 0.7, 0);
+          b.pt(k, p[0], p[1], p[2], ap ? app : C.stamen, (ap ? 0.4 : 0.27) * bright, ap ? 1 : 0.75, t * 0.5, 0.7, 0);
         }
         b.end();
       }
+    }
+
+    // pollen shaken from the anthers: loose motes spiralling up and away on the air
+    b.part('pollen');
+    for (let i = 0; i < nPol; i++) {
+      const az = r() * TAU, rho0 = R * (0.18 + 0.08 * r()), turn = (r() < 0.5 ? -1 : 1) * (0.6 + 0.8 * r()), rise = 0.25 + 0.35 * r(), out = 0.1 + 0.25 * r();
+      for (let k = 0; k < K; k++) {
+        const t = k / (K - 1), a = az + turn * t, rho = rho0 + out * t * R, p = put(HF, Math.cos(a) * rho + g() * 0.01, R * (0.12 + rise * t) + g() * 0.01, Math.sin(a) * rho + g() * 0.01);
+        b.pt(k, p[0], p[1], p[2], mix(C.stamen, WHITE, 0.3 + 0.4 * t), 0.5 * (1 - 0.7 * t) * (0.6 + 0.6 * r()), 0.35 + 0.25 * r(), 0.6, 0, 0.5 + 0.5 * t);
+      }
+      b.end();
     }
 
     // peduncle, and the fine prickles that make a lotus stalk rough to the touch
@@ -992,8 +1011,8 @@ function GEN() {
     // a peltate blade in n strands: radial veins forking twice from a pale navel, an undulating rim
     // (torn by one notch if asked), a lamina of short fibres along the veins and faint cross-arcs
     function peltate(PF, Rr, depth, n, notch, wave) {
-      const ph1 = r() * TAU, ph2 = r() * TAU, aN = 0.15, wN = 0.09;
-      const rimR = (a) => { const dn = notch ? Math.abs(angD(a, aN)) : 9; return Rr * (1 + 0.022 * Math.sin(7 * a + ph1) + 0.012 * Math.sin(13 * a + ph2)) * (dn < wN ? 1 - 0.3 * Math.pow(1 - dn / wN, 1.5) : 1); };
+      const ph1 = r() * TAU, ph2 = r() * TAU, aN = 0.35, wN = 0.11;
+      const rimR = (a) => { const dn = notch ? Math.abs(angD(a, aN)) : 9; return Rr * (1 + 0.022 * Math.sin(7 * a + ph1) + 0.012 * Math.sin(13 * a + ph2)) * (dn < wN ? 1 - 0.38 * Math.pow(1 - dn / wN, 1.3) : 1); };
       const hgt = (rho, a) => { const q = rho / Rr, dn = notch ? Math.abs(angD(a, aN)) : 9; return depth * q * q + wave * Rr * q * q * q * (0.045 * Math.sin(9 * a + ph1) + 0.02 * Math.sin(5 * a + ph2)) + (dn < 0.3 ? 0.06 * Rr * sstep(0.55, 1, q) * (1 - dn / 0.3) : 0); };
       const LP = (rho, a, lift) => put(PF, Math.cos(a) * rho, hgt(rho, a) + lift, Math.sin(a) * rho);
       const [nV, nFill, nRim, nNav] = alloc(n, [0.36, 0.45, 0.13, 0.06]);
@@ -1051,7 +1070,8 @@ function GEN() {
     b.part('folium');
     const padAt = { F: null, hgt: null, base: null };
     if (nPad) {
-      const Lc = [0.72, -0.86, -0.36], PF = tipped(Lc, tiltL), [nPt, nBlade] = alloc(nPad, [0.06, 0.94]);
+      // a larger or steeper pad moves in from the wall and up off the water so it stays in the case
+      const Lc = [Math.min(0.72, 1.36 - 1.05 * Rl), Math.max(-0.78, W0 + 0.06 + Rl * Math.sin(Math.abs(tiltL))), -0.36], PF = tipped(Lc, tiltL), [nPt, nBlade] = alloc(nPad, [0.06, 0.94]);
       const nav = put(PF, 0, -0.01, 0).slice(), pb = (padAt.base = [Lc[0] - 0.05, W0, Lc[2] + 0.05]), pAt = bez(pb, [nav[0] - 0.03, lerp(W0, nav[1], 0.6), nav[2] + 0.02], nav);
       stemFibers(b, { at: pAt, thick: 0.014, cBot: scale(C.stem, 0.6), cTop: scale(C.stem, 0.25), gain: 0.6, span: 0.4, size: 0.75 }, nPt);
       padAt.F = PF; padAt.hgt = peltate(PF, Rl, 0.17 * Rl, nBlade, true, 1);
@@ -1077,7 +1097,7 @@ function GEN() {
           placed.push([Math.cos(a) * rho, Math.sin(a) * rho, rb]);
           bead(put(padAt.F, Math.cos(a) * rho, padAt.hgt(rho, a) + rb * 0.85, Math.sin(a) * rho).slice(), rb, 1, under);
         }
-      } else for (let i = 0; i < nDew; i++) bead([0.4 + 0.1 * i / Math.max(1, nDew), W0 + 0.01, 0.6], 0.008, 0.25, C.water);
+      }
       if (nPdew) {
         // three beads resting in the cup of the outer petals nearest the viewer
         const outer = descs.filter((d) => d.th0 > 0.5 * open).sort((p, q) => Math.cos(q.az - 0.907) - Math.cos(p.az - 0.907));
@@ -1240,7 +1260,7 @@ function GEN() {
     if (nFal) {
       const f0 = b.s, fd = [];
       for (let i = 0; i < nFallen; i++) {
-        const at = [[0.5, 0.95], [-0.95, -0.35], [1.0, 0.75]][i], az = [2.6, 0.4, 3.9][i];
+        const at = [[0.5, 0.95], [-0.2, -1.0], [1.0, 0.75]][i], az = [2.6, 0.4, 3.9][i];
         fallen.push([at[0] + Math.cos(az) * 0.2, at[1] + Math.sin(az) * 0.2]);
         fd.push(petalDesc({ T: [at[0], W0 + 0.012, at[1]], x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }, { az, len: 0.38 * R, wid: 0.115 * R, th0: Math.PI / 2 - 0.1, th1: Math.PI / 2 - 0.02, bend: 1, hood: 0.35, cup: 0.42, wave: 0.06, wrap: 0, gain: 0.26, cM: mix(C.base, C.petal, 0.8), drift: 0.3, flex: 0.2 }));
       }
@@ -1257,6 +1277,7 @@ function GEN() {
     if (nScr) srcs.push([-0.52, 0.92, [0.04, 0.08, 0.13], 0.5]);
     fallen.forEach((c) => srcs.push([c[0], c[1], [0.22, 0.29, 0.38], 0.5]));
     if (nFlt) srcs.push([-0.9, -0.62, [0.34, 0.4], 0.3]);
+    const cRef = mix(C.petal, WHITE, 0.3), cLeafRef = mix(C.leaf, WHITE, 0.3), pc = padAt.F ? padAt.F.T : [9, 0, 9];
     const rip = (n) => {
       const ns = alloc(n, srcs.map((s) => s[2].reduce((a, x) => a + x, 0) * s[3]));
       srcs.forEach(([cx, cz, radii], si) => {
@@ -1264,12 +1285,13 @@ function GEN() {
         for (let i = 0; i < ns[si]; i++) {
           let pick = r() * wsum, ring = 0;
           while (ring < radii.length - 1 && pick > radii[ring]) pick -= radii[ring++];
-          const rho = radii[ring] * (1 + g() * 0.005), da = (0.012 * (K - 1)) / rho / (K - 1), fade = 1 - (ring / radii.length) * 0.55, ph = r() * TAU;
+          const rho = radii[ring] * (1 + g() * 0.005), da = 0.012 / rho, fade = 1 - (ring / radii.length) * 0.55, ph = r() * TAU;
           let a0 = 0, ok = false;
           for (let tries = 0; tries < 8 && !ok; tries++) { a0 = r() * TAU; ok = true; for (let k = 0; k < K && ok; k++) ok = inCase([cx + Math.cos(a0 + da * k) * rho, W0, cz + Math.sin(a0 + da * k) * rho]); }
           for (let k = 0; k < K; k++) {
             const a = a0 + da * k, x = cx + Math.cos(a) * rho, z = cz + Math.sin(a) * rho, crest = Math.pow(0.5 + 0.5 * Math.sin(a * 23 + ph), 6);
-            b.pt(k, ok ? x : cx, W0 + g() * 0.0015, ok ? z : cz, mix(C.water, WHITE, 0.3 * crest), ok ? 0.55 * fade * (0.6 + 0.4 * r()) * (0.7 + 0.9 * crest) : 0, ok ? 0.55 : 0, 0.05, 0.95, 0);
+            const dB = (x - top[0]) ** 2 + (z - top[2]) ** 2, dP = (x - pc[0]) ** 2 + (z - pc[2]) ** 2, cw = mix(mix(C.water, cRef, 0.5 * Math.exp(-dB / 0.12)), cLeafRef, 0.35 * Math.exp(-dP / 0.15));
+            b.pt(k, ok ? x : cx, W0 + g() * 0.0015, ok ? z : cz, mix(cw, WHITE, 0.3 * crest), ok ? 0.55 * fade * (0.6 + 0.4 * r()) * (0.7 + 0.9 * crest) : 0, ok ? 0.55 : 0, 0.05, 0.95, 0);
           }
           b.end();
         }
