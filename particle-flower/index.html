@@ -410,7 +410,7 @@ const SPECIMENS = {
 const PRESETS = {
   peony: {
     flower: 'peony', seed: 7,
-    bloom: { petals: [5, 8, 12], crown: 150, radius: 1.0, openness: 0.7, ruffle: 1.1, cup: 0.8, frill: 0.8, nod: 14 },
+    bloom: { petals: [5, 8, 12], crown: 150, radius: 1.0, openness: 0.7, ruffle: 1.1, cup: 0.8, frill: 0.8, nod: 4 },
     palette: { base: '#7a1836', petal: '#e8678a', tip: '#fff1f3', core: '#e2b45c', sepal: '#7f9a62', stem: '#c0283f', leaf: '#eef2f8' },
     stem: { length: 0.8, bend: 0.06, thickness: 0.04 },
     leaves: { count: 2, length: 0.36, height: 0.42, angle: -38 },
@@ -664,7 +664,7 @@ function GEN() {
   // curling hairs, so the bloom reads as wool and silk rather than as radial spokes.
   function peony(b, cfg) {
     const r = b.r, g = b.g, bl = cfg.bloom || {}, pal = cfg.palette || {}, st = cfg.stem || {}, lv = cfg.leaves || {}, fb = cfg.fiber || {};
-    const R = num(bl.radius, 1, 0.4, 1.15), open = num(bl.openness, 0.7, 0, 1.4), ruf = num(bl.ruffle, 1.1, 0, 2), cupK = num(bl.cup, 0.8, -1, 1.5), frillK = num(bl.frill, 0.8, 0, 2), tilt = (num(bl.nod, 14, -45, 45) * Math.PI) / 180;
+    const R = num(bl.radius, 1, 0.4, 1.15), open = num(bl.openness, 0.7, 0, 1.4), ruf = num(bl.ruffle, 1.1, 0, 2), cupK = num(bl.cup, 0.8, -1, 1.5), frillK = num(bl.frill, 0.8, 0, 2), tilt = (num(bl.nod, 4, -45, 45) * Math.PI) / 180;
     const rings = (Array.isArray(bl.petals) ? bl.petals : [5, 8, 12]).slice(0, 8).map((x) => Math.round(num(x, 8, 0, 40)));
     const nCrown = Math.round(num(bl.crown, 150, 0, 500)), fuzz = num(fb.fuzz, 0.5, 0, 2), crimpK = num(fb.crimp, 1, 0, 2), hairK = num(fb.hair, 1, 0, 2), nDew = Math.round(num(fb.dew, 5, 0, 12));
     const C = { base: hex(pal.base, '#7a1836'), petal: hex(pal.petal, '#e8678a'), tip: hex(pal.tip, '#fff1f3'), core: hex(pal.core, '#e2b45c'), sepal: hex(pal.sepal, '#7f9a62'), stem: hex(pal.stem, '#c0283f'), leaf: hex(pal.leaf, '#eef2f8') };
@@ -675,7 +675,7 @@ function GEN() {
     // the head nods toward the default camera (azimuth 38°): rotate about this horizontal axis through the receptacle
     const VIEW = [0.59, 0.28, 0.76], azView = Math.atan2(VIEW[2], VIEW[0]), KN = norm([VIEW[2], 0, -VIEW[0]]);
     const rot = (v, a) => { const c = Math.cos(a), s = Math.sin(a), kv = KN[0] * v[0] + KN[2] * v[2], kx = cross(KN, v); return [v[0] * c + kx[0] * s + KN[0] * kv * (1 - c), v[1] * c + kx[1] * s, v[2] * c + kx[2] * s + KN[2] * kv * (1 - c)]; };
-    const VIEWL = rot(VIEW, -tilt), KEY = norm([VIEWL[0], VIEWL[1] + 0.25, VIEWL[2]]); // camera and key lamp, seen from the un-nodded bloom
+    const VIEWL = rot(VIEW, -tilt), KEY = norm([VIEWL[0], VIEWL[1] + 0.5, VIEWL[2]]); // camera and key lamp, seen from the un-nodded bloom
     { const f = rot([0, cY - yR, 0], tilt); b.focus = [ax + f[0], yR + f[1], f[2]]; }
     // envelope point at polar angle ga (0 = crown) and scale s, in meridian coordinates [rho, y]
     const env = (ga, s) => [RX * s * Math.sin(ga), cY + RY * s * Math.cos(ga)];
@@ -917,7 +917,7 @@ function GEN() {
           b.pt(k, lerp(P0[0], P1[0], t) + bow[0] * s, lerp(P0[1], P1[1], t), lerp(P0[2], P1[2], t) + bow[2] * s, cFil, 0.25 * bright * dim, 0.4, t * 0.5, 0.35, 0);
         } else {
           const a = (k - 11) * 0.006;
-          b.pt(k, P1[0] + d[0] * a + g() * 0.002, P1[1] + d[1] * a + g() * 0.002, P1[2] + d[2] * a + g() * 0.002, k === 13 ? cHi : C.core, 0.9 * bright * dim, 1.25, 0.6, 0.6, 0);
+          b.pt(k, P1[0] + d[0] * a + g() * 0.002, P1[1] + d[1] * a + g() * 0.002, P1[2] + d[2] * a + g() * 0.002, k === 13 ? cHi : C.core, 1.3 * bright * dim, 1.25, 0.6, 0.6, 0);
         }
       }
       b.end();
