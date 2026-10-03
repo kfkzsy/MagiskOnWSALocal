@@ -1188,7 +1188,7 @@ function GEN() {
         usedL += strap(F, nf, e1, e2, i * GA + ph, {
           r0: Rf * 0.14 * q, h0: Rf * 0.05 * (1 - q2), len: Rf * (0.2 + 0.62 * Math.pow(q, 1.3)) * (0.88 + 0.24 * r()), wid: Rf * (0.03 + 0.05 * q), el0: lerp(1.45, 0.42, Math.pow(q, 0.8)), el1: q < 0.3 ? 1.9 : lerp(1.4, -0.14, Math.pow(q, 1.1)) + (r() - 0.5) * 0.35, bend: 0.8,
           cup: 0.35, twist: (r() - 0.5) * 1.1, teeth: q > 0.3 ? 0.08 : 0, cBase: cTube, cMid: mix(C.floret, C.orange, Math.pow(1 - q, 1.5) * 0.8), cTip: mix(C.floret, WHITE, 0.25), tipAmt: 0.35 * q,
-          gain: 0.66 * (0.8 + 0.3 * q), size: 0.62, flex: 0.06, line: 0.55,
+          gain: 0.78 * (0.8 + 0.3 * q), size: 0.62, flex: 0.06, line: 0.55,
         }, Math.min(spl(q) - 1, lig - usedL - (q > 0.3 ? 1 : 0)));
       }
       // styles: dark-gold threads standing out of the inner florets, each forked into two curls
@@ -1241,9 +1241,11 @@ function GEN() {
     b.part('diaspora');
     {
       const S = add(H, G, 0.72 * Rs + 0.12), E = [1.04, 1.08, -0.6], Cp = [H[0] + 0.5, 1.12, 0.3];
+      // the stream zigzags across itself (seen from the default view) and in depth, so no two parachutes stack
+      const Pn = norm(cross([E[0] - S[0], E[1] - S[1], E[2] - S[2]], [0.62, 0, 0.79])), Pd = [0.59, 0, 0.81];
       for (let i = 0; i < D; i++) {
-        const tau = Math.pow((i + 0.6) / (D + 0.1), 1.25), s = 1 - tau;
-        const O = [s * s * S[0] + 2 * s * tau * Cp[0] + tau * tau * E[0] + g() * 0.06, s * s * S[1] + 2 * s * tau * Cp[1] + tau * tau * E[1] + g() * 0.1 * tau, s * s * S[2] + 2 * s * tau * Cp[2] + tau * tau * E[2] + g() * 0.2 * tau];
+        const tau = Math.pow((i + 0.6) / (D + 0.1), 1.25), s = 1 - tau, side = (i % 2 ? 1 : -1) * (0.03 + 0.1 * tau), deep = ((i % 3) - 1) * 0.14 * tau;
+        const O = [0, 1, 2].map((j) => s * s * S[j] + 2 * s * tau * Cp[j] + tau * tau * E[j] + Pn[j] * side + Pd[j] * deep + g() * 0.015);
         O[0] = clamp(O[0], -1.1, 1.1); O[1] = clamp(O[1], -0.9, 1.16); O[2] = clamp(O[2], -1.1, 1.1);
         const d = norm([lerp(G[0], 0, Math.sqrt(tau)) + g() * 0.2, lerp(G[1], 1, Math.sqrt(tau)), lerp(G[2], 0, Math.sqrt(tau)) + g() * 0.2]);
         const s0 = b.s;
