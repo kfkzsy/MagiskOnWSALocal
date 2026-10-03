@@ -1650,7 +1650,7 @@ void main() {
   }),
   // glass panes: a faint diagonal reflection streak that slides across each wall as you orbit
   glass: new THREE.ShaderMaterial({
-    uniforms: { uColor: { value: new THREE.Color(0.75, 0.85, 1.0) }, uOpacity: { value: 0.014 } },
+    uniforms: { uColor: { value: new THREE.Color(0.75, 0.85, 1.0) }, uOpacity: { value: 0.02 } },
     vertexShader: worldVert,
     fragmentShader: /* glsl */ `uniform vec3 uColor; uniform float uOpacity; varying vec3 vW; varying vec3 vN; varying vec2 vUv;
 void main() {
