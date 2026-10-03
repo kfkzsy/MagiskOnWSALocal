@@ -1643,7 +1643,7 @@ void main() {
   }
   vec3 m = o + d * tm;
   float dens = 0.25 / max(uCone.y * (uCone.x - m.y), 0.2) * smoothstep(uCone.w, uCone.w + 1.0, m.y);
-  float n = 0.8 + 0.2 * sin(m.y * 2.3 - uTime * 0.21 + sin(atan(m.z, m.x) * 5.0 + uTime * 0.13) * 1.7);
+  float n = 0.82 + 0.18 * sin(m.y * 2.3 - uTime * 0.21 + sin(m.x * 3.1 + m.z * 2.3 + uTime * 0.13) * 1.4);
   gl_FragColor = vec4(uColor * uOpacity * len * dens * n, 1.0);
 }`,
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.BackSide,
@@ -1714,12 +1714,12 @@ void main() { gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 
 // lift tints the blacks, gain the highlights (display-referred, in LensShader); occ scales the hold-out
 // sphere by the bloom's own spread; lamp tints the beam, pool and floor sheen.
 const LOOKS = {
-  peony: { lift: [0.004, 0.012, 0.011], gain: [1.04, 1.0, 0.96], gamma: 1.0, sat: 1.05, contrast: 0.05, backdrop: [0.04, 0.052, 0.06], lamp: [1, 0.96, 0.92], bloom: 1, radius: 1, line: 1, sheen: 1, halo: 0, occ: 1.4, mirror: 0.2 },
-  rose: { lift: [0.012, 0.003, 0.01], gain: [1.05, 0.97, 0.9], gamma: 0.98, sat: 1, contrast: 0.14, backdrop: [0.046, 0.038, 0.05], lamp: [1, 0.86, 0.72], bloom: 0.75, radius: 1, line: 1.3, sheen: 1.15, halo: 0, occ: 1.6, mirror: 0.2 },
-  lotus: { lift: [0.012, 0.02, 0.02], gain: [1.04, 0.99, 0.95], gamma: 1.04, sat: 0.92, contrast: -0.06, backdrop: [0.044, 0.06, 0.064], lamp: [0.92, 0.97, 1], bloom: 1.1, radius: 1.6, line: 1, sheen: 0.8, halo: 0.006, occ: 1, mirror: 0.32, plane: -1.32, ripple: 1, tint: [0.6, 0.85, 1.1] },
-  dandelion: { lift: [0.003, 0.009, 0.024], gain: [0.95, 1, 1.07], gamma: 1, sat: 0.7, contrast: 0.06, backdrop: [0.028, 0.044, 0.07], lamp: [0.72, 0.82, 1], bloom: 1, radius: 1.2, line: 1, sheen: 0.9, halo: 0.006, occ: 0.25, mirror: 0.2 },
+  peony: { lift: [0.004, 0.012, 0.011], gain: [1.04, 1.0, 0.96], gamma: 1.0, sat: 1.05, contrast: 0.05, backdrop: [0.04, 0.052, 0.06], lamp: [1, 0.96, 0.92], bloom: 1, radius: 1, line: 1, sheen: 1, halo: 0, occ: 1.4, mirror: 0.2, beam: 1 },
+  rose: { lift: [0.012, 0.003, 0.01], gain: [1.05, 0.97, 0.9], gamma: 0.98, sat: 1, contrast: 0.14, backdrop: [0.046, 0.038, 0.05], lamp: [1, 0.86, 0.72], bloom: 0.75, radius: 1, line: 1.3, sheen: 1.15, halo: 0, occ: 1.6, mirror: 0.2, beam: 1.2 },
+  lotus: { lift: [0.012, 0.02, 0.02], gain: [1.04, 0.99, 0.95], gamma: 1.04, sat: 0.92, contrast: -0.06, backdrop: [0.044, 0.06, 0.064], lamp: [0.92, 0.97, 1], bloom: 1.1, radius: 1.6, line: 1, sheen: 0.8, halo: 0.006, occ: 1, mirror: 0.32, beam: 0.8, plane: -1.32, ripple: 1, tint: [0.6, 0.85, 1.1] },
+  dandelion: { lift: [0.003, 0.009, 0.024], gain: [0.95, 1, 1.07], gamma: 1, sat: 0.7, contrast: 0.06, backdrop: [0.028, 0.044, 0.07], lamp: [0.72, 0.82, 1], bloom: 1, radius: 1.2, line: 1, sheen: 0.9, halo: 0.006, occ: 0.25, mirror: 0.2, beam: 1.3 },
 };
-const look = { first: true, t: 0, data: null, occR: 0, bloom: 1, radius: 1, line: 1, sheen: 1, halo: 0, mirror: 0.2, plane: -HALF, ripple: 0 };
+const look = { first: true, t: 0, data: null, occR: 0, beam: 1, bloom: 1, radius: 1, line: 1, sheen: 1, halo: 0, mirror: 0.2, plane: -HALF, ripple: 0 };
 const lookTmp = new THREE.Vector3(), lookCol = new THREE.Color(), poolTint = new THREE.Color(0x7f8ea6);
 // median distance of the bloom's particles from the focus: sizes the hold-out sphere per build
 function bloomSpread(P, C) {
@@ -1745,13 +1745,15 @@ function updateLook(focusDist) {
   u.uGamma.value += (L.gamma - u.uGamma.value) * k;
   u.uSat.value += (L.sat - u.uSat.value) * k;
   u.uContrast.value += (L.contrast - u.uContrast.value) * k;
-  for (const key of ['bloom', 'radius', 'line', 'sheen', 'halo', 'mirror', 'ripple']) look[key] += ((L[key] || 0) - look[key]) * k;
+  for (const key of ['bloom', 'radius', 'line', 'sheen', 'halo', 'mirror', 'ripple', 'beam']) look[key] += ((L[key] || 0) - look[key]) * k;
   look.plane += ((L.plane ?? -HALF) - look.plane) * k;
   lampColor.lerp(lookCol.setRGB(...L.lamp), k);
   MIRROR.uMirrorTint.value.lerp(lookCol.setRGB(...(L.tint || [0.8, 0.85, 0.95])), k);
 
   bloomPass.strength = params.bloom * look.bloom;
   bloomPass.radius = 0.16 * look.radius;
+  // 1-px hairlines carry dpr-scaled gain, so on dense screens they would cross the threshold en masse
+  bloomPass.threshold = 0.6 + 0.25 * Math.max(0, renderer.getPixelRatio() - 1);
   herb.lineMat.uniforms.uOpacity.value = params.fiber * look.line;
   LOOK.uSheen.value = params.sheen * look.sheen;
   halo.material.opacity = look.halo;
@@ -1771,6 +1773,7 @@ function updateLook(focusDist) {
 
   for (const m of caseMats) m.uniforms.uFocus.value = focusDist;
   atmo.beam.uniforms.uTime.value = t;
+  atmo.beam.uniforms.uOpacity.value = 0.05 * look.beam;
   atmo.stars.uniforms.uTime.value = t;
   atmo.stars.uniforms.uDpr.value = renderer.getPixelRatio();
 }
