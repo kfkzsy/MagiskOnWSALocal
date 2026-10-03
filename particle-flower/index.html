@@ -1256,7 +1256,10 @@ function GEN() {
     const leafT = Array.from({ length: nLeaves }, (_, i) => clamp(lAt + i * 0.22, 0.05, 0.9));
     b.part('caulis');
     const nNode = Math.min(Math.round(nStem * 0.1), 12 * nLeaves), perNode = alloc(nNode, leafT.map(() => 1));
-    stemFibers(b, { at: stemAt, thick, cBot: mix(scale(C.stem, 0.55), C.thorn, 0.15), cTop: C.stem, gain: 0.75, span: 0.3, line: 0.7 }, nStem - nNode);
+    // the neck under the head is dimmer, so from above it does not shine up through the dark heart
+    const [nMain, nNeck] = alloc(nStem - nNode, [0.86, 0.14]);
+    stemFibers(b, { at: (t) => stemAt(t * 0.86), thick, cBot: mix(scale(C.stem, 0.55), C.thorn, 0.15), cTop: C.stem, gain: 0.75, span: 0.3, line: 0.7 }, nMain);
+    stemFibers(b, { at: (t) => stemAt(0.84 + t * 0.16), thick: thick * 0.68, cBot: C.stem, cTop: mix(C.stem, C.sepal, 0.5), gain: 0.4, span: 0.6, line: 0.6 }, nNeck);
     leafT.forEach((t, i) => node(t, perNode[i]));
 
     // rugosa is densely armed: a few hooked prickles among many bristles of mixed length
