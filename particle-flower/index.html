@@ -903,7 +903,7 @@ function GEN() {
       heads.push(mk({
         az: inHeart ? phiS + halfA : i * GA + (r() - 0.5) * 0.1, t, hw, r0, y0: yR + R * lerp(0.1, 0, sstep(0, 0.55, t)), len, wid: clamp((halfA * radMid) / wrap, 0.04 * R, 0.5 * R),
         th0, th1, bend: 1.7, lip: reflexK * (0.15 + sstep(0.12, 0.8, t)) * (0.85 + 0.3 * r()), lipW: lerp(0.16, 0.26, t), cup: cupK * lerp(0.9, 0.45, t) * (1 - 0.75 * hw),
-        roll: reflexK * lerp(0.1, 1.2, sstep(0.1, 0.8, t)), rc: R * lerp(0.012, 0.03, t), wrap, spir, twist: lerp(0.4, 0.04, t) + q * 0.1,
+        roll: reflexK * lerp(0.05, 1.2, sstep(0.3, 0.85, t)), rc: R * lerp(0.012, 0.03, t), wrap, spir, twist: lerp(0.4, 0.04, t) + q * 0.1,
         ruf: ruf * sstep(0.4, 1, t), crimp: ruf * 0.8 * sstep(0.5, 1, t),
         cBase: C.base, cMid: mix(C.base, [C.petal[0], C.petal[1] * (0.7 + 0.8 * r()), C.petal[2] * (0.6 + 1.1 * r())], lerp(0.3, 1, sstep(0.1, 0.8, t))), cTip: C.tip, tipAmt: lerp(0.3, 0.75, t),
         gain: lerp(0.22, 1.5, sstep(0.15, 0.75, t)), gEdge: inHeart ? 0.95 : lerp(0.62, 0.85, sstep(0.45, 1, t)), mS: lerp(0.32, 0.18, t), mW: lerp(0.04, 0.06, t), round: lerp(0.1, 0.5, sstep(0.1, 0.7, t)), side: 0.04 + 0.22 * sstep(0.55, 1, t), nap: velvet * 0.06 * sstep(0.45, 0.8, t), to: toHead, rot: rotHead,
