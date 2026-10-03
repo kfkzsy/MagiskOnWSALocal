@@ -1978,7 +1978,7 @@ canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); $('#fai
 // handle for scripted checks: advance the simulation without waiting for real time
 window.__herb = {
   warp(sec, dt = 1 / 60) { for (let t = 0; t < sec; t += dt) { state.simT += dt; herb.step(dt, state.simT); } },
-  pause(on) { paused = on; }, tick: () => tick(performance.now()),
+  pause(on) { paused = on; }, tick: () => tick(performance.now()), stopIntro() { camTween = null; },
   setQuality: (q) => setQuality(q, true), setPreset, params, state, get herb() { return herb; }, THREE, renderer, composer, camera, controls, scene,
 };
 requestAnimationFrame(frame);
