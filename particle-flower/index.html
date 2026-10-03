@@ -420,7 +420,7 @@ const PRESETS = {
     flower: 'rose', seed: 11,
     bloom: { petals: 36, radius: 1.2, openness: 0.9, reflex: 1.3, cup: 1.0, ruffle: 0.3, spiral: 1, nod: 14 },
     palette: { base: '#2a0210', petal: '#c0102f', tip: '#ff8aa3', core: '#f2b640', sepal: '#3d7a45', stem: '#3f6e36', leaf: '#2c7442', vein: '#9cc98a', thorn: '#b04a30', hip: '#e8451c' },
-    stem: { length: 1.1, bend: 0.08, thickness: 0.03, hip: true },
+    stem: { length: 1.1, bend: 0.08, thickness: 0.03, hip: true, bud: true },
     leaves: { count: 2, leaflets: 7, length: 0.56, height: 0.36 },
     fiber: { fuzz: 0.35, velvet: 1, dew: 5 },
   },
@@ -710,11 +710,11 @@ function GEN() {
   }
 
   /* ---------------- 玫瑰 Rosa ---------------- */
-  // Rosa rugosa drawn like an engraved plate. A high spiral heart of furled petals whose rim-lit lips
-  // trace the swirl over a near-black crimson well; round it a loose cup of velvet petals whose margins
-  // roll back into bright contour lines, a golden boss between. Below the head: bearded sepals on the
-  // young hip, a bristly stem with nodes and stipules, rugose leaves of serrate leaflets with dew,
-  // last year's hip on a side shoot, and two petals fallen to the floor.
+  // Rosa rugosa drawn like an engraved plate, with its whole year on one stem. A spiral heart of furled
+  // petals whose rim-lit lips trace the swirl over a near-black crimson well; round it a cup of velvet
+  // petals whose margins roll back into bright contour lines, a golden boss deep inside. Below: bearded
+  // sepals, a bristly stem with nodes and stipules, rugose leaves of serrate leaflets with dew, a bud
+  // still furled in its sepals, last year's hip on a side shoot, and two petals fallen to the floor.
   function rose(b, cfg) {
     const r = b.r, g = b.g, bl = cfg.bloom || {}, pal = cfg.palette || {}, st = cfg.stem || {}, lv = cfg.leaves || {}, fb = cfg.fiber || {};
     const R = num(bl.radius, 1.2, 0.4, 1.3), open = num(bl.openness, 0.9, 0, 1.5), n = Math.round(num(bl.petals, 36, 8, 80)), reflexK = num(bl.reflex, 1.3, 0, 2.5);
@@ -724,7 +724,7 @@ function GEN() {
       base: hex(pal.base, '#2a0210'), petal: hex(pal.petal, '#c0102f'), tip: hex(pal.tip, '#ff8aa3'), core: hex(pal.core, '#f2b640'), sepal: hex(pal.sepal, '#3d7a45'),
       stem: hex(pal.stem, '#3f6e36'), leaf: hex(pal.leaf, '#2c7442'), vein: hex(pal.vein, '#9cc98a'), thorn: hex(pal.thorn, '#b04a30'), hip: hex(pal.hip, '#e8451c'),
     };
-    const sLen = num(st.length, 1.1, 0.3, 1.5), bend = num(st.bend, 0.08, -0.4, 0.4), thick = num(st.thickness, 0.03, 0.008, 0.08), showHip = st.hip !== false;
+    const sLen = num(st.length, 1.1, 0.3, 1.5), bend = num(st.bend, 0.08, -0.4, 0.4), thick = num(st.thickness, 0.03, 0.008, 0.08), showHip = st.hip !== false, showBud = st.bud !== false;
     const nLeaves = Math.round(num(lv.count, 2, 0, 4)), pairs = Math.round((num(lv.leaflets, 7, 3, 9) - 1) / 2), lsz = num(lv.length, 0.56, 0.15, 0.8), lAt = num(lv.height, 0.36, 0.05, 0.8);
     const E = 1.44, Pt = [0, 0, 0], Pn = [0, 0, 0], Pq = [0, 0, 0], cc = [0, 0, 0];
     // every particle goes through put(), so the specimen stays in its case whatever the config says
@@ -789,7 +789,7 @@ function GEN() {
       centre(o, u, e);
       const ur = u / e, th = thAt(o, u, ur), w = o.wid * widOf(o, u), av = Math.abs(v);
       // the cup flattens where the lip rolls back, or the offset sheet would fold over itself
-      const cupF = o.cup * (1 - sstep(1 - 1.3 * o.lipW, 1 - 0.3 * o.lipW, ur));
+      const cupF = o.cup * (1 - sstep(1 - 1.6 * o.lipW, 1 - 0.2 * o.lipW, ur));
       let lat = v * w, off = cupF * w * v * v + dn, gam = Math.atan(2 * cupF * v);
       const k = (o.roll * sstep(0.15, 0.9, ur)) / o.rc;
       if (av > 0.6 && Math.abs(k) > 1e-3) { const a = clamp(k * (av - 0.6) * w, -2.6, 2.6), sg = v < 0 ? -1 : 1; lat = sg * (0.6 * w + Math.sin(a) / k); off -= (1 - Math.cos(a)) / k; gam -= sg * a; }
@@ -902,10 +902,10 @@ function GEN() {
       const spir = inHeart ? beta * 2 * halfA : 0, radMid = r0 + spir * 0.5 + 0.55 * len * Math.abs(Math.sin((th0 + th1) * 0.5));
       heads.push(mk({
         az: inHeart ? phiS + halfA : i * GA + (r() - 0.5) * 0.1, t, hw, r0, y0: yR + R * lerp(0.1, 0, sstep(0, 0.55, t)), len, wid: clamp((halfA * radMid) / wrap, 0.04 * R, 0.5 * R),
-        th0, th1, bend: 1.7, lip: reflexK * (0.15 + sstep(0.12, 0.8, t)) * (0.85 + 0.3 * r()), lipW: lerp(0.16, 0.26, t), cup: cupK * lerp(0.9, 0.45, t),
+        th0, th1, bend: 1.7, lip: reflexK * (0.15 + sstep(0.12, 0.8, t)) * (0.85 + 0.3 * r()), lipW: lerp(0.16, 0.26, t), cup: cupK * lerp(0.9, 0.45, t) * (1 - 0.75 * hw),
         roll: reflexK * lerp(0.1, 1.2, sstep(0.1, 0.8, t)), rc: R * lerp(0.012, 0.03, t), wrap, spir, twist: lerp(0.4, 0.04, t) + q * 0.1,
         ruf: ruf * sstep(0.4, 1, t), crimp: ruf * 0.8 * sstep(0.5, 1, t),
-        cBase: C.base, cMid: mix(C.base, C.petal, lerp(0.3, 1, sstep(0.1, 0.8, t))), cTip: C.tip, tipAmt: lerp(0.3, 0.75, t),
+        cBase: C.base, cMid: mix(C.base, [C.petal[0], C.petal[1] * (0.7 + 0.8 * r()), C.petal[2] * (0.6 + 1.1 * r())], lerp(0.3, 1, sstep(0.1, 0.8, t))), cTip: C.tip, tipAmt: lerp(0.3, 0.75, t),
         gain: lerp(0.22, 1.5, sstep(0.15, 0.75, t)), gEdge: lerp(0.7, 0.85, t), mS: lerp(0.32, 0.18, t), mW: lerp(0.04, 0.06, t), round: lerp(0.1, 0.5, sstep(0.1, 0.7, t)), side: 0.04 + 0.22 * sstep(0.55, 1, t), nap: velvet * 0.06 * sstep(0.45, 0.8, t), to: toHead, rot: rotHead,
       }));
       if (inHeart) phiS += 2 * halfA * 0.62;
@@ -920,7 +920,7 @@ function GEN() {
     const sepals = [];
     for (let j = 0; j < 5; j++) {
       sepals.push(mk({
-        az: (j / 5) * TAU + 0.5 + (r() - 0.5) * 0.2, r0: R * 0.055, y0: yR * 0.6, len: R * 0.34 * (0.9 + 0.2 * r()), wid: R * 0.045, th0: 1.65, th1: 2.75, bend: 1.2,
+        az: (j / 5) * TAU + 0.5 + (r() - 0.5) * 0.2, r0: R * 0.055, y0: yR * 0.6, len: R * 0.32 * (0.9 + 0.2 * r()), wid: R * 0.065, th0: 1.65, th1: 2.75, bend: 1.2,
         cup: 0.6, roll: 0.25, rc: 0.012, wrap: 0.2, twist: (r() - 0.5) * 0.5, lance: 1, notch: 0, tipAmt: 0.5,
         cBase: scale(C.sepal, 0.4), cMid: C.sepal, cTip: mix(C.sepal, WHITE, 0.35), gain: 0.75, gEdge: 0.8, mS: 0.2, size: 0.85, to: toHead, rot: rotHead, beard: j < 2 ? 2 : j === 2 ? 1 : 0,
       }));
@@ -944,7 +944,7 @@ function GEN() {
       lobes.forEach(([sd, u], li) => {
         const vm = Math.min(1, Math.pow((1 - u) / 0.92, 1 / 1.6)), e = edgeOf(o, sd * vm);
         const B = pos(o, sd * vm, u, e, 0, [0, 0, 0]), lat = norm(sub(B, pos(o, sd * vm * 0.4, u, e, 0, Pn))), fw = norm(sub(pos(o, sd * vm * 0.9, Math.min(0.98, u + 0.06), e, 0, Pn), B));
-        const d = norm([lat[0] * 0.8 + fw[0] * 0.6, lat[1] * 0.8 + fw[1] * 0.6, lat[2] * 0.8 + fw[2] * 0.6]), Ll = R * 0.055 * (1.15 - 0.6 * (u - 0.4)), m = per[li];
+        const d = norm([lat[0] * 0.8 + fw[0] * 0.6, lat[1] * 0.8 + fw[1] * 0.6, lat[2] * 0.8 + fw[2] * 0.6]), Ll = R * 0.075 * (1.15 - 0.6 * (u - 0.4)), m = per[li];
         for (let j = 0; j < m; j++) {
           const q = m > 1 ? j / (m - 1) - 0.5 : 0, bright = 0.6 + 0.4 * r();
           for (let k = 0; k < K; k++) {
@@ -996,11 +996,11 @@ function GEN() {
     function node(t, m) {
       const c = stemAt(t);
       for (let i = 0; i < m; i++) {
-        const a0 = r() * TAU, dy = (r() - 0.5) * 0.02, rr = thick * (1.15 + 0.2 * r());
+        const a0 = r() * TAU, dy = (r() - 0.5) * 0.024, rr = thick * (1.2 + 0.3 * r()) * (1 - 2 * Math.abs(dy));
         for (let k = 0; k < K; k++) {
           const a = a0 + (k / (K - 1)) * TAU * 0.8;
           Pq[0] = c[0] + Math.cos(a) * rr; Pq[1] = c[1] + dy + Math.sin(a * 3 + a0) * 0.002; Pq[2] = c[2] + Math.sin(a) * rr;
-          put(k, Pq, mix(C.stem, C.thorn, 0.35), 0.75, 0.6, 0, 0.7, 0);
+          put(k, Pq, mix(C.stem, C.thorn, 0.45), 0.9, 0.7, 0, 0.8, 0);
         }
         b.end();
       }
@@ -1164,6 +1164,44 @@ function GEN() {
       }
     }
 
+    // ---- a bud on a side shoot: next week's flower, furled tight inside sepals that are just parting
+    function bud(n) {
+      const tN = clamp(lAt + 0.08, 0.12, 0.85), F = frameAt(tN, 0.2), dir = F.rd, S0 = axpy(F.c, dir, thick * 0.9, [0, 0, 0]);
+      const H1 = [S0[0] + dir[0] * 0.12, S0[1] + 0.05, S0[2] + dir[2] * 0.12], H2 = [S0[0] + dir[0] * 0.24, S0[1] + 0.16, S0[2] + dir[2] * 0.24], H3 = [S0[0] + dir[0] * 0.28, S0[1] + 0.27, S0[2] + dir[2] * 0.28];
+      const shoot = (t) => { const a = 1 - t, k0 = a * a * a, k1 = 3 * a * a * t, k2 = 3 * a * t * t, k3 = t * t * t; return [k0 * S0[0] + k1 * H1[0] + k2 * H2[0] + k3 * H3[0], k0 * S0[1] + k1 * H1[1] + k2 * H2[1] + k3 * H3[1], k0 * S0[2] + k1 * H1[2] + k2 * H2[2] + k3 * H3[2]]; };
+      const ax = norm(sub(H3, H2)), u1 = norm(cross(ax, [0.3, 0, 1])), u2 = cross(u1, ax), Bs = 1.3 * R / 1.2;
+      const rotBud = (x, y, z, out) => { for (let i = 0; i < 3; i++) out[i] = u1[i] * x + ax[i] * y + u2[i] * z; return out; };
+      const toBud = (x, y, z, out) => { rotBud(x, y, z, out); out[0] += H3[0]; out[1] += H3[1]; out[2] += H3[2]; return out; };
+      const [nNd, nSh, nPt, nSp, nUrn, nGl] = alloc(n, [0.03, 0.1, 0.52, 0.24, 0.06, 0.05]);
+      node(tN, nNd);
+      stemFibers(b, { at: shoot, thick: 0.007, cBot: mix(C.stem, C.thorn, 0.3), cTop: C.sepal, gain: 0.65, span: 0.45, size: 0.6 }, nSh);
+      const pts = [], sps = [];
+      let ph = r() * TAU;
+      for (let j = 0; j < 6; j++) {
+        const halfA = 2.2 - 0.12 * j, rb = (0.012 + 0.0045 * j) * Bs;
+        pts.push(prep(mk({ az: ph + halfA, r0: rb, y0: 0.022 * Bs, len: (0.115 + 0.007 * j) * Bs, wid: (halfA * (rb + 0.018 * Bs)) / 0.97, th0: 0.4, th1: -0.32, bend: 1.3, lip: 0.12 + 0.05 * j, lipW: 0.2, cup: 0.5, roll: 0.05, rc: 0.008, wrap: 0.97, spir: 0.006 * Bs, twist: 0.5, round: 0.12, notch: 0,
+          cBase: C.base, cMid: mix(C.base, C.petal, 0.85), cTip: mix(C.petal, C.tip, 0.6), tipAmt: 0.5, gain: 0.8, gEdge: 0.75, mS: 0.3, mW: 0.05, side: 0.05, flex: 0.2, to: toBud, rot: rotBud })));
+        ph += 2 * halfA * 0.6;
+      }
+      for (let j = 0; j < 5; j++) {
+        sps.push(prep(mk({ az: (j / 5) * TAU + r() * 0.3, r0: 0.02 * Bs, y0: 0.012 * Bs, len: 0.17 * Bs * (0.9 + 0.2 * r()), wid: 0.026 * Bs, th0: 0.55, th1: 0.12 + 0.15 * (j % 2), bend: 1.2, lip: -0.5 - 0.5 * r(), lipW: 0.35, cup: 0.8, roll: 0.2, rc: 0.008, wrap: 0.55, lance: 1, notch: 0,
+          cBase: scale(C.sepal, 0.45), cMid: C.sepal, cTip: mix(C.sepal, WHITE, 0.3), tipAmt: 0.5, gain: 0.8, gEdge: 0.8, mS: 0.22, side: 0.3, flex: 0.3, size: 0.85, to: toBud, rot: rotBud })));
+      }
+      const pn = alloc(nPt, pts.map((o) => o.len * o.wid)), sn = alloc(nSp, sps.map(() => 1));
+      pts.forEach((o, j) => petal(o, pn[j]));
+      sps.forEach((o, j) => petal(o, sn[j]));
+      for (let i = 0; i < nUrn; i++) {
+        const az = ((i + r()) / nUrn) * TAU, bright = 0.6 + 0.4 * r();
+        for (let k = 0; k < K; k++) { const q = k / (K - 1), rho = (0.012 + 0.016 * Math.sin(Math.PI * (0.15 + 0.75 * q))) * Bs; put(k, toBud(Math.cos(az) * rho, lerp(-0.035, 0.02, q) * Bs, Math.sin(az) * rho, Pt), mix(scale(C.sepal, 0.45), C.sepal, q), bright * 0.7, 0.6, 0.1, 0.6, 0); }
+        b.end();
+      }
+      // glandular bristles on the pedicel, a few catching the light
+      for (let i = 0; i < nGl; i++) {
+        const c = shoot(0.35 + 0.65 * r()), d = norm([g(), g() + 0.3, g()]);
+        gland(c, d, 0.008 + 0.008 * r(), mix(C.sepal, C.thorn, 0.4), mix(C.thorn, C.hip, 0.5), 0.5 + 0.3 * r(), r() < 0.3 ? 0.3 : 0);
+      }
+    }
+
     // ---- fallen petals: lying on the floor, lips curled up off the glass
     const yawRot = (psi) => (x, y, z, out) => { const c = Math.cos(psi), s = Math.sin(psi); out[0] = x * c - z * s; out[1] = y; out[2] = x * s + z * c; return out; };
     const fallenAt = (cx, cz, psi) => (x, y, z, out) => { yawRot(psi)(x, y, z, out); out[0] += cx; out[1] -= 1.4; out[2] += cz; return out; };
@@ -1175,7 +1213,7 @@ function GEN() {
 
     // ---- budget -----------------------------------------------------------------------------------
     const nGutta = nDew ? 3 * (1 + (nLeaves ? Math.min(nDew, 3 * nLeaves) : 0)) : 0;
-    const [nPet, nSta, nSep, nRec, nStem, nAcu, nLeaf, nHip, nFall] = alloc(b.S - nGutta, [0.56, 0.012, 0.042, 0.008, 0.055, 0.03, nLeaves ? 0.2 : 0, showHip ? 0.025 : 0, 0.035]);
+    const [nPet, nSta, nSep, nRec, nStem, nAcu, nLeaf, nHip, nBud, nFall] = alloc(b.S - nGutta, [0.55, 0.01, 0.042, 0.008, 0.055, 0.03, nLeaves ? 0.19 : 0, showHip ? 0.025 : 0, showBud ? 0.025 : 0, 0.035]);
 
     b.part('petala');
     const pn = alloc(nPet, heads.map((o) => o.len * o.wid * (1 + o.hw)));
@@ -1189,7 +1227,7 @@ function GEN() {
       for (let k = 0; k < K; k++) {
         const t = k / (K - 1), a = th + curl * t, anther = t > 0.82;
         if (k) { rad += Math.sin(a) * ds; y += Math.cos(a) * ds; }
-        put(k, toHead(Math.cos(az) * rad, y, Math.sin(az) * rad, Pt), anther ? C.core : mix(mix(C.core, WHITE, 0.4), C.core, t), bright * (anther ? 1.3 : 0.5), anther ? 1.3 : 0.5, t, 0.5, 0);
+        put(k, toHead(Math.cos(az) * rad, y, Math.sin(az) * rad, Pt), anther ? C.core : mix(mix(C.core, WHITE, 0.4), C.core, t), bright * (anther ? 0.8 : 0.3), anther ? 1.2 : 0.45, t, 0.5, 0);
       }
       b.end();
     }
@@ -1217,14 +1255,14 @@ function GEN() {
 
     const leafT = Array.from({ length: nLeaves }, (_, i) => clamp(lAt + i * 0.22, 0.05, 0.9));
     b.part('caulis');
-    const nNode = Math.min(Math.round(nStem * 0.08), 8 * nLeaves), perNode = alloc(nNode, leafT.map(() => 1));
+    const nNode = Math.min(Math.round(nStem * 0.1), 12 * nLeaves), perNode = alloc(nNode, leafT.map(() => 1));
     stemFibers(b, { at: stemAt, thick, cBot: mix(scale(C.stem, 0.55), C.thorn, 0.15), cTop: C.stem, gain: 0.75, span: 0.3, line: 0.7 }, nStem - nNode);
     leafT.forEach((t, i) => node(t, perNode[i]));
 
     // rugosa is densely armed: a few hooked prickles among many bristles of mixed length
     b.part('aculei');
-    const nBig = clamp(Math.round((nAcu * 0.3) / 6), 0, 26);
-    for (let i = 0; i < nBig; i++) prickle(0.06 + 0.84 * ((i + r() * 0.8) / nBig), i * 2.4 + r(), 0.05 + 0.035 * r(), 0.5 + 0.4 * r(), 6);
+    const nBig = clamp(Math.round((nAcu * 0.4) / 6), 0, 34);
+    for (let i = 0; i < nBig; i++) prickle(0.06 + 0.84 * ((i + r() * 0.8) / nBig), i * 2.4 + r(), 0.055 + 0.04 * r(), 0.5 + 0.4 * r(), 6);
     for (let i = 0, m = nAcu - nBig * 6; i < m; i++) bristle(0.03 + 0.92 * r(), r() * TAU, r() < 0.7 ? 0.012 + 0.016 * r() : 0.03 + 0.02 * r());
 
     b.part('folium');
@@ -1236,6 +1274,8 @@ function GEN() {
 
     b.part('fructus');
     if (showHip) hip(nHip);
+    b.part('alabastrum');
+    if (showBud) bud(nBud);
 
     // dew: one bead on the lip of the petal facing the viewer (it falls with that petal), the rest on leaves
     b.part('gutta');
@@ -1249,9 +1289,8 @@ function GEN() {
     b.part('petala-lapsa');
     const fn = alloc(nFall, fallen.map((o) => o.len * o.wid));
     fallen.forEach((o, i) => petal(o, fn[i]));
-    // any strands left over (a sparse config) become extra dew-less margin of the outer petal
+    // a config with fewer dew spots than budgeted leaves a few strands over: the outermost petal takes them
     while (b.s < b.S) petal(heads[n - 1], Math.min(b.S - b.s, 8));
-    if (b.s !== b.S) console.warn('rose strands', b.s, b.S);
   }
 
   /* ---------------- 荷花 Nelumbo ---------------- */
