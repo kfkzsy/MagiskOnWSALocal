@@ -386,13 +386,17 @@ body:has(#tune:not([hidden])) .poem { opacity: 0; }
 /* code to specimen: one soft scan down the gutter when a build lands */
 .editor .scan { position: absolute; left: 0; top: 0; width: 46px; height: 64px; pointer-events: none; opacity: 0; background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--accent) 22%, transparent) 55%, transparent); }
 
+.tune .btns .plate-sw { grid-column: 1 / -1; }
+.tune .btns .plate-sw[aria-pressed="true"] { border-color: color-mix(in srgb, var(--accent) 40%, var(--rule)); }
+
 @media (max-width: 1180px) {
   .hud.poem { right: 22px; font-size: 16px; gap: 10px; }
   .poem .name { font-size: 2em; }
+  body:not(.code-closed) #btn-plate { display: none; }
 }
 @media (max-height: 640px) { .hud.poem { display: none; } }
 @media (max-width: 860px) {
-  .hud.plate, .hud.marks, .hud.poem, #btn-plate { display: none; }
+  .hud.plate, .hud.marks, .hud.poem, #btn-plate, .tune .btns .plate-sw { display: none; }
   .specimen h1 .seal-mini { display: inline-block; }
   .specimen::before { inset: -30px -16px -18px -16px; }
   .slip { margin-top: 9px; padding-top: 5px; }
@@ -503,7 +507,7 @@ body:has(#tune:not([hidden])) .poem { opacity: 0; }
       <div><i>coll.</i> <b id="slip-date">03.X.2026</b> · <i>leg.</i> GPGPU · <i>det.</i> flow.frag</div>
     </div>
     <svg id="slip-bar" aria-hidden="true"></svg>
-    <span class="slip-dies" id="slip-dies" title="time-lapse">dies 21 · anthesis</span>
+    <span class="slip-dies" id="slip-dies" aria-hidden="true">DIES 21 · anthesis</span>
   </div>
   <div class="meta">
     <div class="scalebar" aria-hidden="true"><i id="scale-i"></i><span id="scale-t">5 cm</span></div>
@@ -2513,14 +2517,22 @@ function autoQuality() {
   btnPlate.setAttribute('aria-pressed', String(art.show));
   btnPlate.innerHTML = '<svg viewBox="0 0 24 24"><circle cx="6" cy="17.5" r="2.3"/><path d="M7.7 15.8L13 9.5h8M15 13.5h6"/></svg>';
   $('#btn-tune').before(btnPlate);
+  // the same switch in the render panel, for widths where the top bar has no room for it
+  const tunePlate = document.createElement('button');
+  tunePlate.type = 'button'; tunePlate.className = 'plate-sw';
+  tunePlate.setAttribute('aria-pressed', String(art.show));
+  tunePlate.textContent = '图版标注 L';
+  $('#tune .btns').append(tunePlate);
   function setPlate(on) {
     art.show = on;
     plate.classList.toggle('off', !on);
     btnPlate.setAttribute('aria-pressed', String(on));
+    tunePlate.setAttribute('aria-pressed', String(on));
     try { localStorage.setItem('herb.plate', on ? 'on' : 'off'); } catch {}
     toast(on ? '图版标注：显示' : '图版标注：隐藏');
   }
   btnPlate.addEventListener('click', () => setPlate(!art.show));
+  tunePlate.addEventListener('click', () => setPlate(!art.show));
   addEventListener('keydown', (e) => {
     const t = e.target;
     if ((t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT')) || e.metaKey || e.ctrlKey || e.altKey) return;
