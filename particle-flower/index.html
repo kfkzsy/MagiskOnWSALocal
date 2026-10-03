@@ -9,6 +9,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500&display=swap&text=牡丹玫瑰荷花蒲公英芍药科蔷薇莲菊粒子标本馆">
+<!-- art layer: brush face for the inscriptions; serif 400/900 for glosses, colophon and the seal (subsets must hold every glyph drawn) -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&display=swap&text=牡丹玫瑰荷花蒲公英唯有真国色开时节动京城接叶连枝千万绿一两浅深红小才露尖角早蜻蜓立上头素球羽抱清风吹散作满天星">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;900&display=swap&text=唐・刘禹锡《赏牡丹》宋杨万里红玫瑰小池标本馆题记花瓣萼片冠雄蕊药雌柱头茎葶梗叶柄托苞总状序毛瘦果实种子芽皮刺根落水面蜻蜓露珠粉莲蓬荷菡萏座甲乙丙丁戊己庚辛壬癸丑寅卯辰巳午未申酉戌亥孟仲季春夏秋冬岁在　录于粒標格物">
 <style>
 @property --accent { syntax: "<color>"; inherits: true; initial-value: #ff5c8a; }
 /* Layout: a full-bleed particle stage; the live config docks left like a lab notebook,
@@ -262,6 +265,141 @@ body.bare .hud:not(.keep) { opacity: 0; visibility: hidden; }
   :root { transition: none; }
   #code, .hud, .toast { transition: none; }
 }
+
+/* ---------- art layer: botanical plate, calligraphy, seal, herbarium slip ---------- */
+:root {
+  --seal: #b8322a;
+  --brush: "Ma Shan Zheng", "Kaiti SC", "STKaiti", "KaiTi", var(--cjk);
+  --hair: rgba(216, 220, 229, 0.34);
+}
+/* the scanlines beat into moiré over sub-pixel fibres: keep them at the edges only */
+.vignette { -webkit-mask-image: radial-gradient(ellipse at 50% 50%, transparent 45%, #000 85%); mask-image: radial-gradient(ellipse at 50% 50%, transparent 45%, #000 85%); }
+
+/* plate overlay: callouts + dimension lines, drawn in CSS pixels, above the canvas and below the HUD */
+.hud.plate { inset: 0; width: 100%; height: 100%; z-index: 2; overflow: visible; opacity: 0; transition: opacity 1.6s ease 0.3s; }
+.hud.plate.on { opacity: 1; }
+.hud.plate.on.drag { opacity: 0.22; transition: opacity 0.35s ease; }
+.hud.plate.off { visibility: hidden; }
+.plate .lead { fill: none; stroke: var(--hair); stroke-width: 0.6; }
+.plate .ring { fill: rgba(4, 5, 7, 0.55); stroke: rgba(243, 244, 248, 0.82); stroke-width: 0.8; transform-box: fill-box; transform-origin: center; }
+/* engraving the legend: rings set, leaders draw out from the plant, then the names appear */
+.plate .lead { stroke-dasharray: 1 1; stroke-dashoffset: 1; transition: stroke-dashoffset 1s cubic-bezier(.4, .1, .2, 1) calc(var(--d, 0s) + 0.5s); }
+.plate .ring { transform: scale(0); transition: transform 0.5s cubic-bezier(.3, 1.6, .5, 1) calc(var(--d, 0s) + 0.3s); }
+.plate .cl text { opacity: 0; transition: opacity 0.8s ease calc(var(--d, 0s) + 1.2s); }
+.plate.on .lead { stroke-dashoffset: 0; }
+.plate.on .ring { transform: none; }
+.plate.on .cl text { opacity: 1; }
+.plate .pin { fill: rgba(243, 244, 248, 0.9); }
+.plate text { font-kerning: normal; }
+.plate .num { font: 500 8.5px var(--mono); fill: var(--accent); letter-spacing: 0.06em; }
+.plate .la { font: italic 400 15.5px var(--serif); fill: #e3e6ee; letter-spacing: 0.01em; }
+.plate .gl { font: 400 10.5px var(--cjk); fill: var(--muted); letter-spacing: 0.22em; }
+.plate .cl { transition: opacity 0.3s; }
+.plate .cl.hot .la { fill: var(--accent); }
+.plate .cl.hot .lead { stroke: var(--accent); stroke-width: 1.1; }
+.plate .cl.hot .ring { stroke: var(--accent); animation: ring-pulse 1.3s ease-in-out infinite; }
+@keyframes ring-pulse { 50% { transform: scale(1.9); stroke-width: 0.5; } }
+.plate .dim { fill: none; stroke: rgba(216, 220, 229, 0.3); stroke-width: 0.6; }
+.plate .dim.ext { stroke: rgba(216, 220, 229, 0.16); stroke-dasharray: 1 3; }
+.plate .dim-t { font: 400 9.5px var(--mono); fill: var(--muted); letter-spacing: 0.08em; }
+.plate .dim-t tspan { fill: #aab1bf; }
+
+/* plate corners + catalogue line */
+.hud.marks { left: var(--panel-off); top: 0; right: 0; bottom: 0; }
+.marks i { position: absolute; width: 11px; height: 11px; border: 0 solid rgba(216, 220, 229, 0.3); }
+.marks i:nth-child(1) { left: 7px; top: 7px; border-width: 1px 0 0 1px; }
+.marks i:nth-child(2) { right: 7px; top: 7px; border-width: 1px 1px 0 0; }
+.marks i:nth-child(3) { left: 7px; bottom: 7px; border-width: 0 0 1px 1px; }
+.marks i:nth-child(4) { right: 7px; bottom: 7px; border-width: 0 1px 1px 0; }
+#catalog {
+  position: absolute; left: 64px; top: calc(52px + env(safe-area-inset-top, 0px)); white-space: nowrap;
+  font: 9.5px var(--mono); letter-spacing: 0.12em; color: #4b5260; font-variant-numeric: tabular-nums;
+}
+
+/* calligraphy: a vertical inscription in the empty right margin, written once the bloom settles */
+.hud.poem {
+  top: calc(88px + env(safe-area-inset-top, 0px)); right: 30px; display: flex; flex-direction: row-reverse; align-items: flex-start; gap: 13px;
+  font-size: clamp(16px, 2.3vh, 21px); color: rgba(226, 229, 236, 0.8); transition: opacity 0.45s ease;
+}
+.poem.leave { opacity: 0; }
+.poem.crowded { opacity: 0; transition-duration: 0.8s; }
+body:has(#tune:not([hidden])) .poem { opacity: 0; }
+.poem .col { writing-mode: vertical-rl; white-space: nowrap; line-height: 1; }
+.poem .name {
+  font: 400 2.3em/1 var(--brush); letter-spacing: 0.06em; color: rgba(243, 244, 248, 0.88);
+  text-shadow: 0 0 26px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.poem::before { inset: -40px -34px -36px -60px; background: radial-gradient(closest-side, rgba(4, 5, 7, 0.9), rgba(4, 5, 7, 0.66) 62%, transparent); }
+.poem .verse { font: 400 1em/1 var(--brush); letter-spacing: 0.32em; padding-top: 1.95em; text-shadow: 0 0 14px color-mix(in srgb, var(--accent) 16%, transparent); }
+.poem .sig { display: flex; flex-direction: column; align-items: center; gap: 13px; padding-top: 4.6em; }
+.poem .sig-cols { display: flex; flex-direction: row-reverse; gap: 7px; }
+.poem .by { font: 400 11px/1 var(--cjk); letter-spacing: 0.24em; color: #9aa1ae; }
+.poem .yr { font: 400 10px/1 var(--cjk); letter-spacing: 0.24em; color: #626977; padding-top: 1.1em; }
+.poem .seal { position: relative; width: 38px; height: 38px; }
+.poem .seal svg { width: 100%; height: 100%; opacity: 0.9; }
+.poem .seal::after {
+  content: ""; position: absolute; inset: -30%; border-radius: 50%; pointer-events: none; opacity: 0;
+  background: radial-gradient(circle, color-mix(in srgb, var(--seal) 55%, transparent) 0 30%, transparent 70%);
+}
+/* brush reveal: each column is unmasked top to bottom, one after another */
+.poem .ink {
+  -webkit-mask-image: linear-gradient(180deg, #000 45%, transparent 55%); mask-image: linear-gradient(180deg, #000 45%, transparent 55%);
+  -webkit-mask-size: 100% 220%; mask-size: 100% 220%; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: 0 100%; mask-position: 0 100%;
+  /* the mask clips at the box: pad it so the ink's glow is not cut square */
+  padding-left: 16px; padding-right: 16px; padding-bottom: 14px; margin: 0 -16px -14px;
+}
+.poem .name.ink { padding-top: 14px; margin-top: -14px; }
+.poem.write .ink { -webkit-mask-position: 0 0; mask-position: 0 0; transition: -webkit-mask-position var(--t, 1.2s) cubic-bezier(.45, .05, .35, 1) var(--d, 0s), mask-position var(--t, 1.2s) cubic-bezier(.45, .05, .35, 1) var(--d, 0s); }
+.poem .seal { opacity: 0; transform: scale(1.25) rotate(-2deg); }
+.poem.write .seal { opacity: 1; transform: rotate(-2deg); transition: opacity 0.18s ease-in var(--sd), transform 0.18s cubic-bezier(.55, 0, .85, .25) var(--sd); }
+.poem.write .seal::after { animation: ink-spread 0.9s ease-out var(--sd) both; }
+@keyframes ink-spread { 0% { opacity: 0; transform: scale(0.7); } 18% { opacity: 0.55; } 100% { opacity: 0; transform: scale(1.25); } }
+.seal-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
+.seal-glyphs { font: 900 41px var(--cjk); }
+.seal-glyphs.lead { font-size: 31px; }
+.poem .verse { position: relative; }
+.poem .lead-seal { position: absolute; top: 0.1em; left: 50%; width: 0.8em; height: 1.54em; margin-left: -0.4em; opacity: 0.9; }
+
+/* herbarium sheet: authority, a fine double rule and the accession slip with its barcode */
+.specimen h1 .auth { font: 400 0.34em var(--serif); font-style: normal; letter-spacing: 0.04em; color: var(--muted); margin-left: 0.45em; white-space: nowrap; }
+.specimen h1 .seal-mini { display: none; width: 0.62em; height: 0.62em; margin-left: 0.3em; vertical-align: 0.05em; }
+/* a soft scrim so the case's hairlines and floor petals never cut through the lettering */
+.specimen::before, .poem::before { content: ""; position: absolute; z-index: -1; pointer-events: none; }
+.specimen::before { inset: -46px -70px -40px -60px; background: radial-gradient(closest-side, rgba(4, 5, 7, 0.72), rgba(4, 5, 7, 0.45) 55%, transparent); }
+.slip {
+  display: flex; justify-content: space-between; align-items: flex-end; gap: 18px; margin-top: 12px; padding-top: 7px; max-width: 420px;
+  border-top: 3px double rgba(216, 220, 229, 0.15); font: 9.5px/1.6 var(--mono); color: var(--muted); letter-spacing: 0.03em;
+}
+.slip-f { display: grid; min-width: 0; }
+.slip-f > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.slip-head { font: 500 9px/1.7 var(--mono); letter-spacing: 0.22em; text-transform: uppercase; color: #a3aab7; }
+.slip .slip-head b { letter-spacing: 0.08em; color: var(--accent); text-transform: none; }
+.slip i { font: italic 400 11.5px var(--serif); letter-spacing: 0.02em; color: #8a91a0; }
+.slip b { font-weight: 400; color: var(--fg); font-variant-numeric: tabular-nums; }
+#slip-bar { flex: none; width: 92px; height: 21px; margin-bottom: 3px; fill: rgba(216, 220, 229, 0.6); }
+/* the time-lapse readout sits on the eyebrow line, opposite the specimen number */
+.slip-dies { position: absolute; top: 0; right: 0; font: 500 9.5px/15px var(--mono); letter-spacing: 0.14em; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* code to specimen: one soft scan down the gutter when a build lands */
+.editor .scan { position: absolute; left: 0; top: 0; width: 46px; height: 64px; pointer-events: none; opacity: 0; background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--accent) 22%, transparent) 55%, transparent); }
+
+@media (max-width: 1180px) {
+  .hud.poem { right: 22px; font-size: 16px; gap: 10px; }
+  .poem .name { font-size: 2em; }
+}
+@media (max-height: 640px) { .hud.poem { display: none; } }
+@media (max-width: 860px) {
+  .hud.plate, .hud.marks, .hud.poem, #btn-plate { display: none; }
+  .specimen h1 .seal-mini { display: inline-block; }
+  .specimen::before { inset: -30px -16px -18px -16px; }
+  .slip { margin-top: 9px; padding-top: 5px; }
+  .slip-f > div + div, #slip-bar, .slip-dies { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hud.plate, .poem, .poem .ink, .poem .seal, .plate .cl, .plate .lead, .plate .ring, .plate .cl text { transition: none !important; }
+  .poem .seal::after, .plate .cl.hot .ring { animation: none !important; }
+}
 </style>
 </head>
 <body>
@@ -357,6 +495,14 @@ body.bare .hud:not(.keep) { opacity: 0; visibility: hidden; }
   <div class="eyebrow" id="sp-no">Specimen 01 / 04</div>
   <h1 id="sp-latin">Paeonia suffruticosa</h1>
   <div class="zh"><b id="sp-zh">牡丹</b><span id="sp-family">Paeoniaceae · 芍药科</span></div>
+  <div class="slip" id="slip">
+    <div class="slip-f">
+      <div class="slip-head">Herbarium Particularum · <b id="slip-acc">No. 01-0007</b></div>
+      <div><i>coll.</i> <b id="slip-date">03.X.2026</b> · <i>leg.</i> GPGPU · <i>det.</i> flow.frag</div>
+    </div>
+    <svg id="slip-bar" aria-hidden="true"></svg>
+    <span class="slip-dies" id="slip-dies" title="time-lapse">dies 21 · anthesis</span>
+  </div>
   <div class="meta">
     <div class="scalebar" aria-hidden="true"><i id="scale-i"></i><span id="scale-t">5 cm</span></div>
     <span id="sp-count">— particles · — fibers</span>
@@ -365,6 +511,40 @@ body.bare .hud:not(.keep) { opacity: 0; visibility: hidden; }
 
 <section class="hud stats" id="stats" aria-hidden="true"></section>
 <div class="hud toast" id="toast" role="status" aria-live="polite"></div>
+<svg class="hud plate" id="plate" aria-hidden="true"><g id="plate-dims"></g><g id="plate-labels"></g></svg>
+<div class="hud marks" aria-hidden="true"><i></i><i></i><i></i><i></i><span id="catalog">HERB. PF-01</span></div>
+<aside class="hud poem keep" id="poem" aria-label="题画诗"></aside>
+<svg class="seal-defs" aria-hidden="true" focusable="false">
+  <defs>
+    <!-- stone-cut wear: wobble the cut edges, fleck a few pits out of the ink, let the ink density breathe -->
+    <filter id="seal-wear" x="-8%" y="-8%" width="116%" height="116%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.07" numOctaves="2" seed="11" result="warp"/>
+      <feDisplacementMap in="SourceGraphic" in2="warp" scale="2.6" xChannelSelector="R" yChannelSelector="G" result="cut"/>
+      <feTurbulence type="fractalNoise" baseFrequency="0.3" numOctaves="3" seed="4" result="grain"/>
+      <feColorMatrix in="grain" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -14 10.9" result="pits"/>
+      <feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="21" result="wash"/>
+      <feColorMatrix in="wash" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1.5 0.12" result="density"/>
+      <feComposite in="cut" in2="pits" operator="in" result="pitted"/>
+      <feComposite in="pitted" in2="density" operator="in"/>
+    </filter>
+    <mask id="seal-cut" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100">
+      <rect width="100" height="100" fill="#fff"/>
+      <g class="seal-glyphs" fill="#000" text-anchor="middle" transform="translate(50 50) scale(1.08 1) translate(-50 -50)">
+        <text x="71.5" y="46">粒</text><text x="71.5" y="90">子</text><text x="28.5" y="46">標</text><text x="28.5" y="90">本</text>
+      </g>
+    </mask>
+    <symbol id="seal-sym" viewBox="0 0 100 100">
+      <g filter="url(#seal-wear)"><rect x="5" y="5" width="90" height="90" rx="6" fill="#b8322a" mask="url(#seal-cut)"/></g>
+    </symbol>
+    <!-- 引首章, red-line (朱文) oval at the head of the verse: 格物, "study the thing itself" -->
+    <symbol id="seal-lead" viewBox="0 0 52 100">
+      <g filter="url(#seal-wear)" fill="#b8322a">
+        <rect x="4" y="4" width="44" height="92" rx="21" fill="none" stroke="#b8322a" stroke-width="4.5"/>
+        <g class="seal-glyphs lead" text-anchor="middle"><text x="26" y="47">格</text><text x="26" y="83">物</text></g>
+      </g>
+    </symbol>
+  </defs>
+</svg>
 <div class="hud fail keep" id="fail" hidden>
   <div><b>粒子舞台没能启动</b>需要支持 WebGL2 的浏览器，并能访问 cdn.jsdelivr.net 加载 three.js。<br>请换用最新版 Chrome、Edge、Safari 或 Firefox 再试。</div>
 </div>
@@ -402,10 +582,15 @@ const coarse = matchMedia('(pointer: coarse)').matches;
    Specimens: default configs (what the editor shows) + herbarium labels
    ===================================================================== */
 const SPECIMENS = {
-  peony: { no: '01', latin: 'Paeonia suffruticosa', zh: '牡丹', family: 'Paeoniaceae · 芍药科', accent: '#ff5c8a' },
-  rose: { no: '02', latin: 'Rosa rugosa', zh: '玫瑰', family: 'Rosaceae · 蔷薇科', accent: '#ff3b5f' },
-  lotus: { no: '03', latin: 'Nelumbo nucifera', zh: '荷花', family: 'Nelumbonaceae · 莲科', accent: '#ff8ab4' },
-  dandelion: { no: '04', latin: 'Taraxacum officinale', zh: '蒲公英', family: 'Asteraceae · 菊科', accent: '#d9e4ff' },
+  peony: { no: '01', latin: 'Paeonia suffruticosa', zh: '牡丹', family: 'Paeoniaceae · 芍药科', accent: '#ff5c8a',
+    auth: 'Andrews', dies: 21, phase: 'anthesis', poem: ['唯有牡丹真国色', '花开时节动京城'], by: '唐・刘禹锡《赏牡丹》' },
+  rose: { no: '02', latin: 'Rosa rugosa', zh: '玫瑰', family: 'Rosaceae · 蔷薇科', accent: '#ff3b5f',
+    auth: 'Thunb.', dies: 18, phase: 'anthesis', poem: ['接叶连枝千万绿', '一花两色浅深红'], by: '宋・杨万里《红玫瑰》' },
+  lotus: { no: '03', latin: 'Nelumbo nucifera', zh: '荷花', family: 'Nelumbonaceae · 莲科', accent: '#ff8ab4',
+    auth: 'Gaertn.', dies: 14, phase: 'anthesis', poem: ['小荷才露尖尖角', '早有蜻蜓立上头'], by: '宋・杨万里《小池》' },
+  // the dandelion line has no classical source: it is the herbarium's own inscription
+  dandelion: { no: '04', latin: 'Taraxacum officinale', zh: '蒲公英', family: 'Asteraceae · 菊科', accent: '#d9e4ff',
+    auth: 'F.H.Wigg.', dies: 9, phase: 'fructus', poem: ['素球千羽抱清风', '一吹散作满天星'], by: '标本馆题记', own: true },
 };
 const PRESETS = {
   peony: {
@@ -1963,6 +2148,416 @@ function autoQuality() {
     toast(`帧率偏低，已切换到 ${$(`#quality button[data-q="${order[i - 1]}"]`).textContent} 粒子`);
   }
   state.fpsLog = [];
+}
+
+/* =====================================================================
+   Art layer — the specimen as a botanical plate: numbered callouts and
+   dimension lines (SVG, projected each frame), a brush inscription with
+   its seal, and the herbarium accession slip. Hooks only; no O(N) per frame.
+   ===================================================================== */
+{
+  const NS = 'http://www.w3.org/2000/svg';
+  const svgEl = (tag, attrs, parent) => {
+    const el = document.createElementNS(NS, tag);
+    for (const k in attrs) el.setAttribute(k, attrs[k]);
+    if (parent) parent.append(el);
+    return el;
+  };
+  const plate = $('#plate'), labelsG = $('#plate-labels'), dimsG = $('#plate-dims'), poemEl = $('#poem');
+  const specEl = $('#specimen'), statsBox = $('#stats');
+  const art = {
+    kind: null, labels: [], labelKey: '', hot: null, bloomed: false, morph: null, day: -1, acc: '', crowded: false,
+    rb: 0.8, top: 0.6, base: -1.45, wideY: 0.1, show: true, nextRects: 0, rects: null, lastSweep: 0,
+  };
+  try { art.show = localStorage.getItem('herb.plate') !== 'off'; } catch {}
+  plate.classList.toggle('off', !art.show);
+
+  // Latin part → Chinese gloss; a few parts are named differently on a given plant
+  const GLOSS = {
+    petala: '花瓣', sepala: '萼片', calyx: '花萼', corolla: '花冠', stamina: '雄蕊', antherae: '花药', pistillum: '雌蕊', stigma: '柱头',
+    caulis: '茎', scapus: '花葶', pedunculus: '花梗', folium: '叶', folia: '叶', petiolus: '叶柄', stipulae: '托叶', bracteae: '苞片',
+    receptaculum: '花托', involucrum: '总苞', capitulum: '头状花序', pappus: '冠毛', achenium: '瘦果', fructus: '果实', semen: '种子',
+    alabastrum: '花苞', gemma: '芽', aculei: '皮刺', spinae: '刺', radix: '根', rhizoma: '根茎', 'petala-lapsa': '落瓣',
+    aqua: '水面', odonata: '蜻蜓', gutta: '露珠', guttae: '露珠', pollen: '花粉',
+  };
+  const GLOSS_KIND = {
+    lotus: { receptaculum: '莲蓬', folium: '荷叶', fructus: '莲子', alabastrum: '菡萏' },
+    dandelion: { folium: '莲座叶', fructus: '瘦果' },
+  };
+
+  // collection date, herbarium style (03.X.2026), and the sexagenary year + season for the colophon:
+  // the year turns at 立春 (~4 Feb); seasons follow the solar-term months (节 on roughly these days)
+  const now0 = new Date(), Y = now0.getFullYear(), M = now0.getMonth() + 1, D = now0.getDate();
+  const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
+  const pad = (n, w = 2) => String(n).padStart(w, '0');
+  const isoDay = `${Y}-${pad(M)}-${pad(D)}`, herbDay = `${pad(D)}.${ROMAN[M - 1]}.${Y}`;
+  const JIE = [6, 4, 6, 5, 6, 6, 7, 8, 8, 8, 7, 7];
+  const gy = M < 2 || (M === 2 && D < 4) ? Y - 1 : Y;
+  const sm = ((((D >= JIE[M - 1] ? M : M - 1) - 2) % 12) + 12) % 12; // 0 = 寅月, first month of spring
+  const SUI = '甲乙丙丁戊己庚辛壬癸'[(((gy - 4) % 10) + 10) % 10] + '子丑寅卯辰巳午未申酉戌亥'[(((gy - 4) % 12) + 12) % 12] + '孟仲季'[sm % 3] + '春夏秋冬'[(sm / 3) | 0];
+  $('#slip-date').textContent = herbDay;
+
+  // Code 39 (1 = wide element; bars and spaces alternate, starting with a bar)
+  const C39 = {
+    0: '000110100', 1: '100100001', 2: '001100001', 3: '101100000', 4: '000110001', 5: '100110000', 6: '001110000', 7: '000100101',
+    8: '100100100', 9: '001100100', F: '001011000', P: '001010010', '-': '010000101', '*': '010010100',
+  };
+  function barcode(svg, text) {
+    let x = 0, d = '';
+    for (const ch of `*${text}*`) {
+      const p = C39[ch] || C39['-'];
+      for (let i = 0; i < 9; i++) { const w = p[i] === '1' ? 2.6 : 1; if (!(i & 1)) d += `M${x.toFixed(1)} 0h${w}v20h${-w}z`; x += w; }
+      x += 1;
+    }
+    svg.setAttribute('viewBox', `0 0 ${(x - 1).toFixed(1)} 20`);
+    svg.setAttribute('preserveAspectRatio', 'none');
+    svg.innerHTML = `<path d="${d}"/>`;
+  }
+  function updateSlip() {
+    const sp = SPECIMENS[state.kind] || SPECIMENS.peony, s = state.lastCfg ? Math.abs(Math.round(+state.lastCfg.seed)) : 7;
+    const acc = `${sp.no}-${pad(Number.isFinite(s) ? s : 0, 4)}`;
+    $('#catalog').textContent = `TAB. ${ROMAN[+sp.no - 1] || sp.no} · PF-${sp.no} · capsa 29 × 29 × 29 cm · ${isoDay} · ${herb.N.toLocaleString('en-US')} pt`;
+    if (acc === art.acc) return;
+    art.acc = acc;
+    $('#slip-acc').textContent = `No. ${acc}`;
+    barcode($('#slip-bar'), `PF${acc}`);
+  }
+
+  /* ---------- the title gets its authority (roman, as botanists write it) and, on phones, the seal ---------- */
+  const authEl = document.createElement('span');
+  authEl.className = 'auth';
+  const sealMini = svgEl('svg', { class: 'seal-mini', viewBox: '0 0 100 100', 'aria-hidden': 'true' });
+  svgEl('use', { href: '#seal-sym' }, sealMini);
+
+  /* ---------- calligraphy: name in brush, the poem, attribution, colophon, seal ---------- */
+  function poemHTML(kind) {
+    const sp = SPECIMENS[kind];
+    const yr = `岁在${SUI}　${sp.own ? '题' : '录'}于粒子标本馆`;
+    return `<div class="col name ink" style="--t:1.1s">${sp.zh}</div>`
+      + sp.poem.map((l, i) => `<div class="col verse ink" style="--d:${(0.8 + i * 1.2).toFixed(1)}s">${i ? '' : '<svg class="lead-seal" viewBox="0 0 52 100"><use href="#seal-lead"/></svg>'}${l}</div>`).join('')
+      + '<div class="sig"><div class="sig-cols">'
+      + `<div class="col by ink" style="--d:3.3s;--t:.9s">${sp.by}</div><div class="col yr ink" style="--d:3.8s;--t:.9s">${yr}</div></div>`
+      + '<span class="seal" style="--sd:4.9s"><svg viewBox="0 0 100 100"><use href="#seal-sym"/></svg></span></div>';
+  }
+  // A new specimen or a regrow lifts the ink (fade, then re-mask, swapping the text if the specimen changed);
+  // writing starts again once the bloom has settled.
+  function writePoem() {
+    if (poemEl.classList.contains('leave')) return; // the pending reset writes it
+    if (art.poemKind !== art.kind) return refreshPoem();
+    void poemEl.offsetWidth; // commit the masked state first so the reveal transitions
+    poemEl.classList.add('write');
+  }
+  function refreshPoem() {
+    clearTimeout(art.poemT);
+    const reset = () => {
+      poemEl.classList.remove('write', 'leave');
+      if (art.poemKind !== art.kind) {
+        const sp = SPECIMENS[(art.poemKind = art.kind)];
+        poemEl.innerHTML = poemHTML(art.kind);
+        poemEl.setAttribute('aria-label', `题画诗：${sp.poem.join('，')}。${sp.by}`);
+        art.rects = null;
+      }
+      if (art.bloomed) writePoem();
+    };
+    if (reduceMotion || !poemEl.classList.contains('write')) reset();
+    else { poemEl.classList.add('leave'); art.poemT = setTimeout(reset, 460); }
+  }
+
+  kindHooks.push((kind) => {
+    const sp = SPECIMENS[kind];
+    authEl.textContent = sp.auth || '';
+    $('#sp-latin').append(authEl, sealMini); // setKind just rewrote the title text
+    if (kind === art.kind) return;
+    art.kind = kind;
+    refreshPoem();
+  });
+
+  /* ---------- callouts ---------- */
+  function makeLabel(name, i, kind) {
+    const g = svgEl('g', { class: 'cl', 'data-part': name, style: `--d:${(0.12 * i).toFixed(2)}s` }, labelsG);
+    const lead = svgEl('path', { class: 'lead', pathLength: 1 }, g);
+    const ring = svgEl('circle', { class: 'ring', r: 2.7 }, g);
+    const pin = svgEl('circle', { class: 'pin', r: 0.9 }, g);
+    const text = svgEl('text', {}, g);
+    const num = svgEl('tspan', { class: 'num' });
+    num.textContent = pad(i + 1);
+    const la = svgEl('tspan', { class: 'la' });
+    la.textContent = name.replace(/-/g, ' ');
+    const zh = (GLOSS_KIND[kind] || {})[name] || GLOSS[name] || '';
+    const gl = svgEl('tspan', { class: 'gl' });
+    gl.textContent = zh;
+    return { name, p: new THREE.Vector3(), g, lead, ring, pin, text, num, la, gl, zh, w: 60 + name.length * 7, side: 0, flip: 0, a: 1, y: 0, op: -1, shown: true };
+  }
+  // text order mirrors so the numeral always sits at the end of the leader
+  function orient(l, side) {
+    const gap = (el, dx) => { el.setAttribute('dx', dx); return el; };
+    if (side > 0) l.text.replaceChildren(gap(l.num, 0), gap(l.la, 6), ...(l.zh ? [gap(l.gl, 7)] : []));
+    else l.text.replaceChildren(gap(l.la, 0), ...(l.zh ? [gap(l.gl, 7)] : []), gap(l.num, 7));
+    l.text.setAttribute('text-anchor', side > 0 ? 'start' : 'end');
+  }
+  function measureLabels() {
+    for (const l of art.labels) { try { const t = l.text.getComputedTextLength(); if (t > 0) l.w = t + 8; } catch {} }
+  }
+  document.fonts?.ready.then(measureLabels);
+  document.fonts?.addEventListener?.('loadingdone', measureLabels);
+
+  // one O(N) pass per build: bloom radius (robust to stray wisps), plant height, the height of the widest ring
+  function extents(res) {
+    const P = res.P, C = res.C, A = res.A, f = res.focus, n = P.length >> 2, BINS = 128, RMAX = 1.8;
+    const rh = new Uint32Array(BINS), yh = new Uint32Array(BINS), yCut = f[1] - 0.5;
+    let nb = 0, ny = 0;
+    for (let i = 0; i < n; i += 2) {
+      const j = i << 2;
+      if (C[j + 3] <= 0 || A[j + 1] > 0.001) continue; // skip empty texels and drifting seeds/petals
+      const y = P[j + 1], yb = Math.min(BINS - 1, Math.max(0, ((y + 1.5) / 3) * BINS) | 0);
+      yh[yb]++; ny++;
+      if (y > yCut) { rh[Math.min(BINS - 1, ((Math.hypot(P[j] - f[0], P[j + 2] - f[2]) / RMAX) * BINS) | 0)]++; nb++; }
+    }
+    const pct = (h, total, q) => { let acc = 0; for (let b = 0; b < BINS; b++) { acc += h[b]; if (acc >= total * q) return b + 0.5; } return BINS - 0.5; };
+    if (!nb || !ny) return;
+    art.rb = (pct(rh, nb, 0.985) / BINS) * RMAX;
+    art.top = (pct(yh, ny, 0.997) / BINS) * 3 - 1.5;
+    art.base = Math.max(-1.45, (pct(yh, ny, 0.002) / BINS) * 3 - 1.5);
+    // the widest ring: mean height of bloom particles near the outer radius
+    let sy = 0, sn = 0;
+    const r0 = art.rb * 0.86;
+    for (let i = 0; i < n; i += 8) {
+      const j = i << 2;
+      if (C[j + 3] <= 0 || A[j + 1] > 0.001 || P[j + 1] <= yCut) continue;
+      if (Math.hypot(P[j] - f[0], P[j + 2] - f[2]) > r0) { sy += P[j + 1]; sn++; }
+    }
+    art.wideY = sn ? sy / sn : f[1];
+    art.dimR = `Ø ${(art.rb * 20).toFixed(1)}`;
+    art.dimH = `H ${((art.top - art.base) * 10).toFixed(1)}`;
+  }
+
+  // dimension lines live in their own group; built once, moved every frame
+  const dimEls = {
+    dl: svgEl('path', { class: 'dim' }, dimsG), dx: svgEl('path', { class: 'dim ext' }, dimsG), dt: svgEl('text', { class: 'dim-t', 'text-anchor': 'middle' }, dimsG),
+    hl: svgEl('path', { class: 'dim' }, dimsG), ht: svgEl('text', { class: 'dim-t', 'text-anchor': 'middle' }, dimsG),
+  };
+  function dimText(el, value) { el.innerHTML = `<tspan>${value}</tspan> cm`; }
+
+  buildHooks.push((res) => {
+    const names = Object.keys(res.anchors || {});
+    const key = `${res.kind}:${names.join(',')}`;
+    if (key !== art.labelKey) {
+      art.labelKey = key;
+      labelsG.textContent = '';
+      art.labels = names.map((n, i) => makeLabel(n, i, res.kind));
+      for (const l of art.labels) orient(l, 1);
+      measureLabels();
+      for (const l of art.labels) l.g.classList.toggle('hot', l.name === art.hot);
+    }
+    for (const l of art.labels) l.p.fromArray(res.anchors[l.name]);
+    extents(res);
+    dimText(dimEls.dt, art.dimR);
+    dimText(dimEls.ht, art.dimH);
+    updateSlip();
+    sweep();
+  });
+
+  /* ---------- per-frame: growth clock, then project anchors and lay the legend out ---------- */
+  const v = new THREE.Vector3(), w = new THREE.Vector3(), camDir = new THREE.Vector3(), right = new THREE.Vector3();
+  const toScreen = (p, out) => { v.copy(p).project(camera); out.x = (v.x + 1) * 0.5 * innerWidth; out.y = (1 - v.y) * 0.5 * innerHeight; out.z = v.z; return out; };
+  const sA = {}, sB = {}, sC = {}, sD = {};
+  const smooth = (e0, e1, x) => { const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
+  const ff = (n) => n.toFixed(1);
+
+  frameHooks.push((raw, now) => {
+    const u = herb.vel.material.uniforms, ms = u.uMorphStart.value, stg = u.uStagger.value;
+    if (ms !== art.morph) { // a new growth wave: lift the legend and the seal until it settles
+      art.morph = ms;
+      if (art.bloomed) { art.bloomed = false; plate.classList.remove('on'); refreshPoem(); }
+    }
+    const sp = SPECIMENS[state.kind] || SPECIMENS.peony, dur = 2.7 * stg + 0.7, age = state.simT - ms;
+    const day = herb.ready ? Math.round(Math.min(1, Math.max(0, age / dur)) * sp.dies) : 0;
+    if (day !== art.day) { art.day = day; $('#slip-dies').textContent = day >= sp.dies ? `DIES ${day} · ${sp.phase}` : `DIES ${pad(day)} / ${sp.dies}`; }
+    if (herb.ready && age > dur && !art.bloomed) {
+      art.bloomed = true;
+      plate.classList.add('on');
+      writePoem();
+      for (const l of art.labels) l.side = 0; // re-seat the legend from scratch
+    }
+    if (now > art.nextRects || !art.rects) { // layout reads twice a second, never per label
+      art.nextRects = now + 500;
+      const pr = poemEl.getBoundingClientRect();
+      art.rects = { poem: pr.width > 0 && tuneEl.hidden && !body.classList.contains('bare') ? pr : null, spec: specEl.getBoundingClientRect(), stats: statsBox.getBoundingClientRect() };
+    }
+    if (!art.bloomed || !art.show || narrowMQ.matches || !art.labels.length) { setCrowded(false); return; }
+    layout(Math.min(raw, 0.1));
+  });
+  function setCrowded(on) { if (on !== art.crowded) { art.crowded = on; poemEl.classList.toggle('crowded', on); } }
+
+  function layout(dt) {
+    const W = innerWidth, H = innerHeight, R = art.rects;
+    camera.updateMatrixWorld(); // controls moved the camera this frame; project with the pose about to render
+    const x0 = Math.max(0, view.cx - view.fw / 2) + 18, x1 = Math.min(W, view.cx + view.fw / 2) - 18;
+    const y0 = Math.max(0, view.cy - view.fh / 2) + 34, y1 = Math.min(H, view.cy + view.fh / 2) - 8;
+    toScreen(state.focus, sA);
+    const depth = Math.max(0.1, -w.copy(state.focus).applyMatrix4(camera.matrixWorldInverse).z);
+    const ppu = (camera.projectionMatrix.elements[5] * H * 0.5) / depth;
+    camDir.copy(camera.position).sub(state.focus).setY(0).normalize();
+    right.set(camDir.z, 0, -camDir.x);
+    const rb = art.rb * ppu, hys = Math.max(14, rb * 0.25), k = 1 - Math.exp(-dt * 9);
+
+    // where each column has to stop above the HUD (specimen label bottom-left, readouts bottom-right)
+    const floorOf = { '-1': R.spec.width ? R.spec.top - 16 : y1 - 12, 1: R.stats.width ? R.stats.top - 14 : y1 - 12 };
+    const inside = (s, r) => r && r.width && s.x > r.left - 6 && s.x < r.right + 6 && s.y > r.top - 6 && s.y < r.bottom + 6;
+
+    // project, decide sides (with hysteresis; a flip fades out, moves, fades in)
+    const sides = { '-1': [], 1: [] };
+    for (const l of art.labels) {
+      const s = toScreen(l.p, l.s || (l.s = {}));
+      // off stage, behind the camera, or tucked under a HUD panel: no callout
+      const on = s.z < 1 && s.x > x0 - 40 && s.x < x1 + 40 && s.y > 0 && s.y < H && !inside(s, R.spec) && !inside(s, R.poem) && !inside(s, R.stats);
+      if (on !== l.shown) { l.shown = on; l.g.style.display = on ? '' : 'none'; }
+      if (!on) continue;
+      const dx = s.x - sA.x;
+      let near = dx >= 0 ? 1 : -1;
+      // a low anchor near the axis goes to whichever side can reach down to it
+      if (Math.abs(dx) < rb * 0.6 && s.y > floorOf[near] && s.y <= floorOf[-near]) near = -near;
+      const want = !l.side ? near : Math.abs(dx) < hys && l.side !== near && !(s.y > floorOf[l.side]) ? l.side : near;
+      if (!l.side) { l.side = want; l.a = 1; l.snap = true; orient(l, want); }
+      l.flip = want === l.side ? 0 : want;
+      if (l.flip) {
+        l.a = Math.max(0, l.a - dt * 4);
+        if (l.a <= 0) { l.side = l.flip; l.flip = 0; l.snap = true; orient(l, l.side); }
+      } else l.a = Math.min(1, l.a + dt * 3);
+      // parts turned away from the camera stay legible but recede
+      const hx = l.p.x - state.focus.x, hz = l.p.z - state.focus.z, hl = Math.hypot(hx, hz);
+      l.face = hl < 0.15 ? 1 : 0.28 + 0.72 * smooth(-0.3, 0.15, (hx * camDir.x + hz * camDir.z) / hl);
+      sides[l.side].push(l);
+    }
+
+    // columns just outside the bloom (and beyond every anchor on that side), kept inside the free stage
+    const col = {};
+    let crowded = false;
+    for (const sd of [-1, 1]) {
+      const list = sides[sd];
+      if (!list.length) continue;
+      let c = sA.x + sd * (rb + 30), wmax = 0;
+      for (const l of list) { c = sd > 0 ? Math.max(c, l.s.x + 26) : Math.min(c, l.s.x - 26); wmax = Math.max(wmax, l.w); }
+      c = sd > 0 ? Math.min(c, x1 - wmax) : Math.max(c, x0 + wmax);
+      let top = y0 + 12, bottom = y1 - 12;
+      const lo = sd > 0 ? c : c - wmax, hi = sd > 0 ? c + wmax : c;
+      if (sd > 0 && R.poem && hi > R.poem.left - 16) {
+        // the inscription owns the upper right: stack below it, or let it make way if there is no room
+        const below = R.poem.bottom + 18;
+        const fits = (bottom - below) > list.length * 27 + (art.crowded ? 24 : 0);
+        crowded = !fits;
+        if (fits) top = Math.max(top, below);
+      }
+      if (sd < 0 && R.spec.width && lo < R.spec.right + 12) bottom = Math.min(bottom, R.spec.top - 16);
+      if (sd > 0 && R.stats.width && hi > R.stats.left - 12) bottom = Math.min(bottom, R.stats.top - 14);
+      col[sd] = { c, wmax };
+      // stack by anchor height, at least 27px apart, then pull back inside the band
+      list.sort((a, b) => a.s.y - b.s.y);
+      let prev = -1e9;
+      for (const l of list) { l.ty = Math.max(l.s.y, prev + 27, top); prev = l.ty; }
+      let next = 1e9;
+      for (let i = list.length - 1; i >= 0; i--) { const l = list[i]; l.ty = Math.min(l.ty, next - 27, bottom); next = l.ty; }
+      for (const l of list) {
+        l.y = l.snap ? l.ty : l.y + (l.ty - l.y) * k;
+        l.snap = false;
+        const ax = l.s.x, ay = l.s.y, ex = c - sd * 22, len = Math.hypot(ex - ax, l.y - ay) || 1;
+        const ox = ax + ((ex - ax) / len) * 3.6, oy = ay + ((l.y - ay) / len) * 3.6;
+        l.lead.setAttribute('d', `M${ff(ox)} ${ff(oy)}L${ff(ex)} ${ff(l.y)}H${ff(c - sd * 5)}`);
+        l.ring.setAttribute('cx', ff(ax)); l.ring.setAttribute('cy', ff(ay));
+        l.pin.setAttribute('cx', ff(ax)); l.pin.setAttribute('cy', ff(ay));
+        l.text.setAttribute('x', ff(c)); l.text.setAttribute('y', ff(l.y + 4.5));
+        const op = l.name === art.hot ? 1 : l.a * l.face;
+        if (Math.abs(op - l.op) > 0.01) { l.op = op; l.g.style.opacity = op.toFixed(2); }
+      }
+    }
+    setCrowded(crowded);
+
+    // Ø: a measure above the bloom, square to the view, with dotted extension lines down to its widest ring
+    w.copy(state.focus).addScaledVector(right, -art.rb).setY(art.top + 0.14); toScreen(w, sA);
+    w.copy(state.focus).addScaledVector(right, art.rb).setY(art.top + 0.14); toScreen(w, sB);
+    w.copy(state.focus).addScaledVector(right, -art.rb).setY(art.wideY + 0.06); toScreen(w, sC);
+    w.copy(state.focus).addScaledVector(right, art.rb).setY(art.wideY + 0.06); toScreen(w, sD);
+    const tick = (p) => `M${ff(p.x - 3)} ${ff(p.y + 3)}l6 -6`;
+    dimEls.dl.setAttribute('d', `M${ff(sA.x - 6)} ${ff(sA.y)}L${ff(sB.x + 6)} ${ff(sB.y)}${tick(sA)}${tick(sB)}`);
+    dimEls.dx.setAttribute('d', `M${ff(sC.x)} ${ff(sC.y)}L${ff(sA.x)} ${ff(sA.y + 4)}M${ff(sD.x)} ${ff(sD.y)}L${ff(sB.x)} ${ff(sB.y + 4)}`);
+    dimEls.dt.setAttribute('x', ff((sA.x + sB.x) / 2)); dimEls.dt.setAttribute('y', ff((sA.y + sB.y) / 2 - 7));
+    // H: a rod on the side with fewer labels, outboard of that column
+    const hs = sides[1].length < sides['-1'].length ? 1 : -1, hc = col[hs];
+    const hx = hc ? hc.c + hs * (hc.wmax + 18) : (sA.x + sB.x) / 2 + hs * (Math.abs(sB.x - sA.x) / 2 + 26);
+    w.copy(state.focus).setY(art.top); toScreen(w, sC);
+    w.copy(state.focus).setY(art.base); toScreen(w, sD);
+    const hxc = Math.min(x1 - 6, Math.max(x0 + 6, hx));
+    dimEls.hl.setAttribute('d', `M${ff(hxc)} ${ff(sC.y - 5)}V${ff(sD.y + 5)}M${ff(hxc - 3)} ${ff(sC.y + 3)}l6 -6M${ff(hxc - 3)} ${ff(sD.y + 3)}l6 -6`
+      + `M${ff(hxc)} ${ff(sC.y)}h${-hs * 16}M${ff(hxc)} ${ff(sD.y)}h${-hs * 16}`);
+    dimEls.ht.setAttribute('transform', `translate(${ff(hxc + hs * 5)} ${ff((sC.y + sD.y) / 2)}) rotate(${hs > 0 ? 90 : -90})`);
+  }
+
+  // dim while the camera is being dragged
+  controls.addEventListener('start', () => plate.classList.add('drag'));
+  controls.addEventListener('end', () => plate.classList.remove('drag'));
+
+  /* ---------- toggle: button beside the render controls, and L ---------- */
+  const btnPlate = document.createElement('button');
+  btnPlate.className = 'icon'; btnPlate.id = 'btn-plate'; btnPlate.title = '图版标注 (L)';
+  btnPlate.setAttribute('aria-label', '图版标注 (L)');
+  btnPlate.setAttribute('aria-pressed', String(art.show));
+  btnPlate.innerHTML = '<svg viewBox="0 0 24 24"><circle cx="6" cy="17.5" r="2.3"/><path d="M7.7 15.8L13 9.5h8M15 13.5h6"/></svg>';
+  $('#btn-tune').before(btnPlate);
+  function setPlate(on) {
+    art.show = on;
+    plate.classList.toggle('off', !on);
+    btnPlate.setAttribute('aria-pressed', String(on));
+    try { localStorage.setItem('herb.plate', on ? 'on' : 'off'); } catch {}
+    toast(on ? '图版标注：显示' : '图版标注：隐藏');
+  }
+  btnPlate.addEventListener('click', () => setPlate(!art.show));
+  addEventListener('keydown', (e) => {
+    const t = e.target;
+    if ((t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT')) || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key === 'l' || e.key === 'L') setPlate(!art.show);
+  });
+
+  /* ---------- code to specimen: the caret's key lights its part on the plate ---------- */
+  const KEY_PART = {
+    bloom: 'petala', petal: 'petala', base: 'petala', tip: 'petala', sepal: 'sepala', core: 'stamina', stamen: 'stamina',
+    stem: 'caulis', leaves: 'folium', leaf: 'folium', pod: 'receptaculum', water: 'aqua', seed: 'pappus', seeds: 'pappus',
+    pappus: 'pappus', achene: 'pappus', spread: 'pappus', drifting: 'pappus', thorn: 'aculei', bud: 'alabastrum',
+  };
+  const ALT = { caulis: ['scapus'], petala: ['pappus', 'capitulum', 'receptaculum'], stamina: ['receptaculum', 'capitulum'], pappus: ['capitulum', 'receptaculum'] };
+  function caretPart() {
+    if (state.tab !== 'json' || narrowMQ.matches) return null;
+    const eol = ta.value.indexOf('\n', ta.selectionStart);
+    const lines = ta.value.slice(0, eol < 0 ? ta.value.length : eol).split('\n'); // whole caret line, so a caret inside a key counts
+    let inner = null, top = null;
+    for (let i = lines.length - 1; i >= 0 && !top; i--) {
+      const m = /^(\s*)"([^"]+)"\s*:/.exec(lines[i]);
+      if (!m) continue;
+      if (m[1].length === 2) top = m[2];
+      else if (m[1].length >= 4 && i === lines.length - 1) inner = m[2];
+    }
+    let part = top === 'palette' ? KEY_PART[inner] : top === 'leaves' && inner === 'bud' ? 'alabastrum' : KEY_PART[top];
+    const has = (n) => art.labels.some((l) => l.name === n);
+    if (part && !has(part)) part = (ALT[part] || []).find(has) || null;
+    return part || null;
+  }
+  function setHot(part) {
+    if (part === art.hot) return;
+    art.hot = part;
+    for (const l of art.labels) { l.g.classList.toggle('hot', l.name === part); l.op = -1; }
+  }
+  ['keyup', 'click', 'select', 'focus'].forEach((ev) => ta.addEventListener(ev, () => setHot(caretPart())));
+  ta.addEventListener('blur', () => setHot(null));
+
+  // a soft scan down the gutter each time a build lands, so the code visibly "grows" the plant
+  const scan = document.createElement('i');
+  scan.className = 'scan';
+  editorEl.append(scan);
+  function sweep() {
+    const t = performance.now();
+    if (reduceMotion || narrowMQ.matches || !codeOpen() || state.tab !== 'json' || !scan.animate || t - art.lastSweep < 1200) return;
+    art.lastSweep = t;
+    scan.animate([{ transform: 'translateY(-64px)', opacity: 0 }, { opacity: 1, offset: 0.2 }, { transform: `translateY(${editorEl.clientHeight}px)`, opacity: 0 }], { duration: 1100, easing: 'cubic-bezier(.3, .1, .3, 1)' });
+  }
 }
 
 /* ---------- boot ---------- */
