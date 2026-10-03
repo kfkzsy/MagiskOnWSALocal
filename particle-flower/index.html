@@ -906,7 +906,7 @@ function GEN() {
         roll: reflexK * lerp(0.1, 1.2, sstep(0.1, 0.8, t)), rc: R * lerp(0.012, 0.03, t), wrap, spir, twist: lerp(0.4, 0.04, t) + q * 0.1,
         ruf: ruf * sstep(0.4, 1, t), crimp: ruf * 0.8 * sstep(0.5, 1, t),
         cBase: C.base, cMid: mix(C.base, [C.petal[0], C.petal[1] * (0.7 + 0.8 * r()), C.petal[2] * (0.6 + 1.1 * r())], lerp(0.3, 1, sstep(0.1, 0.8, t))), cTip: C.tip, tipAmt: lerp(0.3, 0.75, t),
-        gain: lerp(0.22, 1.5, sstep(0.15, 0.75, t)), gEdge: lerp(0.7, 0.85, t), mS: lerp(0.32, 0.18, t), mW: lerp(0.04, 0.06, t), round: lerp(0.1, 0.5, sstep(0.1, 0.7, t)), side: 0.04 + 0.22 * sstep(0.55, 1, t), nap: velvet * 0.06 * sstep(0.45, 0.8, t), to: toHead, rot: rotHead,
+        gain: lerp(0.22, 1.5, sstep(0.15, 0.75, t)), gEdge: inHeart ? 0.95 : lerp(0.62, 0.85, sstep(0.45, 1, t)), mS: lerp(0.32, 0.18, t), mW: lerp(0.04, 0.06, t), round: lerp(0.1, 0.5, sstep(0.1, 0.7, t)), side: 0.04 + 0.22 * sstep(0.55, 1, t), nap: velvet * 0.06 * sstep(0.45, 0.8, t), to: toHead, rot: rotHead,
       }));
       if (inHeart) phiS += 2 * halfA * 0.62;
     }
