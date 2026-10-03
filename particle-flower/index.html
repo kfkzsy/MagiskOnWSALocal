@@ -484,11 +484,16 @@ function GEN() {
       this.S = (N / K) | 0; this.s = 0;
       this.P = new Float32Array(N * 4); // xyz home, w flex
       this.C = new Float32Array(N * 4); // rgb (linear), a size
-      this.A = new Float32Array(N * 4); // x fiber weight, y drift
+      // aux: x fiber weight, y drift, z release group, w glint (see tag())
+      this.A = new Float32Array(N * 4);
       const r = rng(seed); this.r = r;
       this.g = () => (r() + r() + r() - 1.5) * 1.15;
       this.focus = [0, 0, 0];
+      this.parts = []; // [name, first strand] — see part()
     }
+    // Start a named botanical part (petala, sepala, stamina, caulis, folium, …) at the current strand.
+    // build() turns each part into an anchor point that the specimen callouts point at.
+    part(name) { this.parts.push([name, this.s]); }
     pt(k, x, y, z, c, gain, size, flex, line, drift) {
       if (this.s >= this.S) return;
       const i = (this.s * K + k) * 4;
@@ -497,6 +502,16 @@ function GEN() {
       this.A[i] = line; this.A[i + 1] = drift || 0;
     }
     end() { this.s++; }
+    // Tag strands [from, to). group > 0: the simulation may detach these strands now and then and
+    // let them drift as one piece before they return. glint 0..1: dew drops or sparkle the renderer
+    // may make twinkle. Pass null to leave a channel untouched.
+    tag(from, to, group, glint) {
+      for (let s = from; s < Math.min(to, this.S); s++) for (let k = 0; k < K; k++) {
+        const i = (s * K + k) * 4;
+        if (group != null) this.A[i + 2] = group;
+        if (glint != null) this.A[i + 3] = glint;
+      }
+    }
   }
 
   const tmp = [0, 0, 0];
@@ -509,11 +524,20 @@ function GEN() {
 
   // One fiber across a petal, at lateral position v in [-1, 1]. The centerline is
   // integrated in the meridian plane (radius, height) while its angle bends outward.
+  // Optional detail knobs, all off by default:
+  //   veins 0..1 (+ veinN): fibers on vein lines glow brighter, so the petal shows its venation
+  //   frill 0..1 (+ frillF): jagged, crinkled margin, like a peony's torn petal edge
+  //   wisp 0..1 (+ curl): share of fibers that run past the tip and curl into fine hairs
   function petalFiber(b, o, v) {
     const r = b.r, g = b.g, av = Math.abs(v);
     let lenS = o.shape === 2 ? 1 - Math.pow(av, 1.8) * 0.9 : o.shape === 1 ? Math.sqrt(Math.max(0.02, 1 - av * av * 0.62)) : 1 - av * av * 0.2;
     lenS *= 1 + o.ruf * 0.08 * Math.sin(v * o.rufF + o.ph) + (r() - 0.5) * 0.08 * o.fuzz;
+    const frill = o.frill || 0, veins = o.veins || 0, wisp = (o.wisp || 0) > 0 && r() < o.wisp;
+    if (frill) { const q = (((v * (o.frillF || 9) + o.ph) % 1) + 1) % 1; lenS *= 1 + frill * 0.16 * (Math.abs(q - 0.5) * 2 - 0.5); }
+    if (wisp) lenS *= 1.1 + r() * 0.16;
     lenS = Math.max(0.05, lenS);
+    const vein = veins ? Math.pow(Math.abs(Math.cos(v * (o.veinN || 7) * Math.PI * 0.5)), 12) * veins : 0;
+    const curlA = (r() < 0.5 ? -1 : 1) * (0.6 + r()) * (o.curl ?? 1), curlP = r() * TAU;
     const ds = (o.len * lenS) / (K - 1);
     let rad = o.r0, y = o.y0;
     const bright = 0.45 + r() * 0.8;
@@ -525,9 +549,15 @@ function GEN() {
       const wp = o.shape === 2 ? Math.pow(Math.sin(Math.PI * Math.min(1, 0.05 + uu * 0.95)), 0.8)
         : o.shape === 1 ? Math.pow(Math.sin(Math.PI * (0.08 + 0.8 * uu)), 0.6)
         : Math.pow(Math.sin(Math.PI * (0.07 + 0.62 * uu)), 0.55);
-      const w = o.wid * wp, lat = v * w;
+      const w = o.wid * wp;
+      let lat = v * w;
       let off = o.cup * w * v * v - o.reflex * uu * uu * uu * w * (0.35 + v * v);
       off += o.ruf * w * 0.32 * Math.sin(v * o.rufF + o.ph + uu * 5) * uu * uu;
+      if (frill) off += frill * w * 0.07 * Math.sin(uu * 21 + v * 13 + o.ph) * uu;
+      if (wisp && uu > 0.78) {
+        const q = Math.min(1.6, (uu - 0.78) / 0.3), amp = q * q * 0.045, a = curlP + q * 4 * curlA;
+        lat += Math.cos(a) * amp; off += Math.sin(a) * amp;
+      }
       const nr = -Math.cos(th), ny = Math.sin(th);
       const rr = Math.max(0.004, rad + nr * off), yy = y + ny * off;
       const phi = o.az + o.twist * uu + (o.wrap * lat) / Math.max(rr, 0.07);
@@ -537,8 +567,9 @@ function GEN() {
       // rim light: margins and tips catch the light, so overlapping petals keep their outlines
       const rim = sstep(0.7, 1, av) * (o.rim ?? 0.5), tipF = Math.pow(sstep(0.68, 1, uu), 1.6);
       let c = mix(o.cBase, o.cMid, sstep(0, 0.45, uu));
-      c = mix(c, o.cTip, o.tipAmt * Math.max(tipF, rim * 0.8));
-      b.pt(k, tmp[0], tmp[1], tmp[2], c, bright * o.gain * (0.72 + rim * 1.3 + tipF * 0.4) * (0.15 + 0.85 * sstep(0, 0.45, uu)), o.size * (0.6 + 0.8 * r()) * (k === K - 1 ? 1.4 : 1), uu * uu, o.line, o.drift);
+      c = mix(c, o.cTip, Math.min(1, o.tipAmt * Math.max(tipF, rim * 0.8) + (wisp ? sstep(0.8, 1.1, uu) * 0.6 : 0)));
+      const gain = bright * o.gain * (0.72 + rim * 1.3 + tipF * 0.4 + vein * 1.2) * (0.15 + 0.85 * sstep(0, 0.45, uu));
+      b.pt(k, tmp[0], tmp[1], tmp[2], c, gain, o.size * (0.6 + 0.8 * r()) * (k === K - 1 ? 1.4 : 1) * (wisp && uu > 0.9 ? 0.7 : 1), uu * uu, o.line, o.drift);
     }
     b.end();
   }
@@ -668,13 +699,14 @@ function GEN() {
       loosePetal({ cx: -0.78, cy: -1.435, cz: 0.6, az: 0.9, th0: 1.6, th1: 1.38, cup: 0.3, gain: 0.7 }),
     ];
     const [nPet, nCore, nSep, nStem, nLeaf, nLoose] = alloc(b.S, [0.62, 0.035, 0.1, 0.065, nLeaves ? 0.13 : 0, 0.04]);
-    petalGroup(b, descs, nPet);
-    stamens(b, { cx: top[0], cy: top[1] + 0.07 * R, cz: 0, r0: 0, r1: 0.07 * R, th0: 0.1, th1: 0.9, curl: 0.4, len: 0.2 * R, cBase: mix(C.sepal, C.core, 0.5), cMid: C.core, cTip: mix(C.core, WHITE, 0.4), gain: 0.9, line: 0.4 }, nCore);
-    petalGroup(b, sep, nSep);
-    stemFibers(b, { at: stemAt, thick, cBot: scale(C.stem, 0.5), cTop: C.stem, gain: 0.85, span: 0.3 }, nStem);
+    b.part('petala'); petalGroup(b, descs, nPet);
+    b.part('stamina'); stamens(b, { cx: top[0], cy: top[1] + 0.07 * R, cz: 0, r0: 0, r1: 0.07 * R, th0: 0.1, th1: 0.9, curl: 0.4, len: 0.2 * R, cBase: mix(C.sepal, C.core, 0.5), cMid: C.core, cTip: mix(C.core, WHITE, 0.4), gain: 0.9, line: 0.4 }, nCore);
+    b.part('sepala'); petalGroup(b, sep, nSep);
+    b.part('caulis'); stemFibers(b, { at: stemAt, thick, cBot: scale(C.stem, 0.5), cTop: C.stem, gain: 0.85, span: 0.3 }, nStem);
+    b.part('folium');
     const nl = alloc(nLeaf, leaves.map(() => 1));
     leaves.forEach((l, i) => leafStrands(b, l, nl[i]));
-    petalGroup(b, loose, nLoose);
+    b.part('petala-lapsa'); petalGroup(b, loose, nLoose);
   }
 
   /* ---------------- 玫瑰 Rosa ---------------- */
@@ -715,9 +747,10 @@ function GEN() {
       leafSets.push({ A, f, Lr, lf });
     }
     const [nPet, nSep, nStem, nThorn, nLeaf, nLoose] = alloc(b.S, [0.6, 0.06, 0.08, 0.015, nLeaves ? 0.2 : 0, 0.035]);
-    petalGroup(b, descs, nPet);
-    petalGroup(b, sep, nSep);
-    stemFibers(b, { at: stemAt, thick, cBot: scale(C.stem, 0.55), cTop: C.stem, gain: 0.75, span: 0.3 }, nStem);
+    b.part('petala'); petalGroup(b, descs, nPet);
+    b.part('sepala'); petalGroup(b, sep, nSep);
+    b.part('caulis'); stemFibers(b, { at: stemAt, thick, cBot: scale(C.stem, 0.55), cTop: C.stem, gain: 0.75, span: 0.3 }, nStem);
+    b.part('aculei');
     for (let i = 0; i < nThorn; i++) {
       const t = 0.05 + 0.8 * r(), p = stemAt(t), az = r() * TAU, d = norm([Math.cos(az), -0.55, Math.sin(az)]), len = 0.05 + r() * 0.03;
       for (let k = 0; k < K; k++) {
@@ -726,6 +759,7 @@ function GEN() {
       }
       b.end();
     }
+    b.part('folium');
     const perSet = alloc(nLeaf, leafSets.map(() => 1));
     leafSets.forEach((set, i) => {
       const [nRach, nBlades] = alloc(perSet[i], [0.12, 0.88]);
@@ -734,6 +768,7 @@ function GEN() {
       set.lf.forEach((l, j) => leafStrands(b, l, each[j]));
     });
     const lp = (extra) => Object.assign({ az: 0, r0: 0, y0: 0, len: 0.4 * R, wid: 0.36 * R, th0: 1.6, th1: 1.3, bend: 1.2, cup: 0.35, reflex: 0.5, ruf: 0.3, rufF: 5, ph: r() * TAU, wrap: 0, twist: 0, shape: 1, fuzz, cBase: C.base, cMid: C.petal, cTip: C.tip, tipAmt: 0.7, gain: 0.7, size: 1, line: 0.5 }, extra);
+    b.part('petala-lapsa');
     petalGroup(b, [lp({ cx: 0.7, cy: -1.435, cz: -0.45, az: 2.2 }), lp({ cx: -0.35, cy: -1.435, cz: 0.75, az: 4.4, len: 0.32 * R })], nLoose);
   }
 
@@ -756,8 +791,9 @@ function GEN() {
     });
     const showBud = lv.bud !== false, Rl = num(lv.size, 0.72, 0, 1.2);
     const [nPet, nPod, nSta, nStem, nLeaf, nBud, nRip] = alloc(b.S, [0.5, 0.06, 0.07, 0.05, Rl > 0 ? 0.16 : 0, showBud ? 0.07 : 0, 0.05]);
-    petalGroup(b, descs, nPet);
+    b.part('petala'); petalGroup(b, descs, nPet);
     // seed pod: flat disk on an inverted cone, dotted with seeds
+    b.part('receptaculum');
     const yt = top[1] + 0.16 * R, yb = top[1] + 0.02, rp = 0.15 * R, rb = 0.06 * R;
     const [nTop, nSide, nSeed] = alloc(nPod, [0.45, 0.35, 0.2]);
     for (let i = 0; i < nTop; i++) {
@@ -775,8 +811,10 @@ function GEN() {
       for (let k = 0; k < K; k++) { const q = (k / K) * TAU, rr = 0.013 * (0.6 + 0.4 * r()); b.pt(k, sx + Math.cos(q) * rr, yt + 0.016, sz + Math.sin(q) * rr, mix(C.pod, C.stamen, 0.6), 0.7, 0.8, 0, 0.5, 0); }
       b.end();
     }
+    b.part('stamina');
     stamens(b, { cx: top[0], cy: top[1] + 0.05 * R, cz: 0, r0: rp * 0.95, r1: rp * 1.3, th0: 0.35, th1: 1.1, curl: 0.5, len: 0.15 * R, cBase: mix(C.base, C.stamen, 0.4), cMid: C.stamen, cTip: mix(C.stamen, WHITE, 0.45), gain: 0.26, line: 0.5 }, nSta);
-    stemFibers(b, { at: stemAt, thick, cBot: scale(C.stem, 0.55), cTop: C.stem, gain: 0.75, span: 0.3 }, nStem);
+    b.part('caulis'); stemFibers(b, { at: stemAt, thick, cBot: scale(C.stem, 0.55), cTop: C.stem, gain: 0.75, span: 0.3 }, nStem);
+    b.part('folium');
     if (nLeaf) {
       // peltate leaf: a shallow bowl with radial veins and a wavy rim
       const Lc = [0.62, -0.98, -0.52], [nPetiole, nVein, nFill] = alloc(nLeaf, [0.08, 0.62, 0.3]);
@@ -798,6 +836,7 @@ function GEN() {
         b.end();
       }
     }
+    b.part('alabastrum');
     if (nBud) {
       const Bt = [-0.78, -0.36, 0.42], [nBs, nBp] = alloc(nBud, [0.25, 0.75]);
       stemFibers(b, { at: curve([-0.3, -1.32, 0.28], Bt, -0.06, 0), thick: 0.02, cBot: scale(C.stem, 0.5), cTop: C.stem, gain: 0.7, span: 0.35 }, nBs);
@@ -805,6 +844,7 @@ function GEN() {
       for (let j = 0; j < 8; j++) bud.push({ cx: Bt[0], cy: Bt[1], cz: Bt[2], tz: 0.42, az: (j / 8) * TAU + r() * 0.2, r0: 0.03, y0: 0, len: 0.34 * (0.9 + r() * 0.15), wid: 0.17, th0: 0.12 + (j % 2) * 0.08, th1: 0.02, bend: 1.4, cup: 1.3, reflex: 0, ruf: 0.04, rufF: 5, ph: 0, wrap: 0.55, twist: 0, shape: 2, fuzz: 0.25, cBase: mix(C.base, C.stem, 0.25), cMid: C.petal, cTip: C.tip, tipAmt: 1, gain: 0.32, size: 1, line: 0.55 });
       petalGroup(b, bud, nBp);
     }
+    b.part('aqua');
     ripples(b, { cx: 0, cy: -1.32, cz: 0, radii: [0.22, 0.42, 0.66, 0.92, 1.2], c: C.water, gain: 0.32 }, nRip);
   }
 
@@ -820,12 +860,14 @@ function GEN() {
     const nLeaves = Math.round(num(lv.count, 5, 0, 12));
     const [nStem, nLeaf, nCore, nSeeds] = alloc(b.S, [0.04, nLeaves ? 0.12 : 0, 0.01, 0.83]);
     M = Math.min(M, Math.floor(nSeeds / 4)); D = Math.min(D, Math.floor(nSeeds / 40));
-    stemFibers(b, { at: stemAt, thick, cBot: scale(C.stem, 0.6), cTop: C.stem, gain: 0.6, span: 0.3, size: 0.7 }, nStem);
+    b.part('scapus'); stemFibers(b, { at: stemAt, thick, cBot: scale(C.stem, 0.6), cTop: C.stem, gain: 0.6, span: 0.3, size: 0.7 }, nStem);
+    b.part('folium');
     const ln = alloc(nLeaf, Array.from({ length: nLeaves }, () => 1)), lenL = num(lv.length, 0.75, 0.1, 1.4);
     for (let i = 0; i < nLeaves; i++) {
       const yaw = (i / nLeaves) * TAU + r() * 0.5, pitch = 0.18 + r() * 0.22;
       leafStrands(b, { A: [Math.cos(yaw) * 0.03, y0, Math.sin(yaw) * 0.03], f: [Math.cos(yaw) * Math.cos(pitch), Math.sin(pitch), Math.sin(yaw) * Math.cos(pitch)], len: lenL * (0.75 + r() * 0.35), wid: lenL * 0.16, droop: 0.55, fold: 0.25, sp: 1.6, teeth: 0.9, lobes: 6, wave: 0.4, cMid: C.leaf, cEdge: scale(C.leaf, 0.8), cVein: mix(C.leaf, WHITE, 0.35), gain: 0.5, line: 0.45 }, ln[i]);
     }
+    b.part('receptaculum');
     for (let i = 0; i < nCore; i++) {
       const d = norm([g(), Math.abs(g()) + 0.2, g()]);
       for (let k = 0; k < K; k++) { const q = 0.03 + 0.03 * (k / (K - 1)); b.pt(k, H[0] + d[0] * q, H[1] + d[1] * q - 0.01, H[2] + d[2] * q, C.core, 0.8, 0.8, 0, 0.3, 0); }
@@ -847,6 +889,7 @@ function GEN() {
     }
     const all = seeds.length, P = Math.max(1, Math.floor((nSeeds - all) / all));
     let extra = nSeeds - all - P * all;
+    b.part('pappus');
     seeds.forEach((sd) => {
       const bright = 0.75 + r() * 0.4, bendV = [g() * 0.02, g() * 0.02, g() * 0.02];
       for (let k = 0; k < K; k++) {
@@ -877,7 +920,20 @@ function GEN() {
     const kind = KINDS[cfg.flower] ? cfg.flower : 'peony';
     const b = new Builder(N, Math.round(num(cfg.seed, 7, 0, 1e9)));
     KINDS[kind](b, cfg);
-    return { P: b.P, C: b.C, A: b.A, kind, strands: Math.min(b.s, b.S), focus: b.focus, ms: Date.now() - t0 };
+    // anchor per part: the strand tip of that part that faces the default camera most (azimuth 38°)
+    const anchors = {};
+    b.parts.forEach(([name, from], i) => {
+      const to = Math.min(i + 1 < b.parts.length ? b.parts[i + 1][1] : b.s, b.S), step = Math.max(1, ((to - from) / 600) | 0);
+      let best = -1e9, at = null;
+      for (let s = from; s < to; s += step) {
+        const j = (s * K + K - 1) * 4;
+        if (b.C[j + 3] <= 0) continue;
+        const score = b.P[j] * 0.62 + b.P[j + 2] * 0.79;
+        if (score > best) { best = score; at = [b.P[j], b.P[j + 1], b.P[j + 2]]; }
+      }
+      if (at && !anchors[name]) anchors[name] = at;
+    });
+    return { P: b.P, C: b.C, A: b.A, kind, strands: Math.min(b.s, b.S), focus: b.focus, anchors, ms: Date.now() - t0 };
   }
   return { build, K, kinds: Object.keys(KINDS) };
 }
@@ -903,7 +959,7 @@ uniform float uMouse;
 uniform float uMouseRadius;
 uniform vec4  uBurst;        // xyz origin, w impulse
 uniform sampler2D uTargetPos;  // xyz home, w flex
-uniform sampler2D uTargetAux;  // x fiber weight, y drift
+uniform sampler2D uTargetAux;  // x fiber weight, y drift, z release group, w glint
 
 float hash12(vec2 p) {
   vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -1421,6 +1477,10 @@ const state = {
 };
 Object.keys(PRESETS).forEach((k) => (state.texts[k] = presetText(k)));
 let herb = new Herbarium(QUALITY[state.quality]);
+// extension points: other parts of the page subscribe here instead of editing these functions
+const kindHooks = [];   // (kind) when the specimen changes
+const buildHooks = [];  // (res) when a shape build lands — res.anchors holds named part positions
+const frameHooks = [];  // (raw, now) every frame, after the simulation step, before rendering
 
 function requestBuild(cfg, dissolve) {
   const req = { id: ++state.buildId, cfg, N: herb.N };
@@ -1445,7 +1505,9 @@ function onBuilt(res) {
     burst(state.focus, 1.4);
   }
   state.dissolve = false;
+  state.anchors = res.anchors || {};
   setKind(res.kind);
+  for (const f of buildHooks) f(res);
   setStatus('ok', `已生长 · ${herb.N.toLocaleString('en-US')} 粒子 · ${res.strands.toLocaleString('en-US')} 纤维 · ${res.ms} ms`);
   $('#sp-count').textContent = `${herb.N.toLocaleString('en-US')} particles · ${res.strands.toLocaleString('en-US')} fibers`;
 }
@@ -1623,6 +1685,7 @@ function setKind(kind) {
   document.documentElement.style.setProperty('--accent', sp.accent);
   state.accentTarget = new THREE.Color(sp.accent);
   $$('.presets button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.p === kind)));
+  for (const f of kindHooks) f(kind);
 }
 function setPreset(key, { animateCode = false } = {}) {
   if (!PRESETS[key]) return;
@@ -1867,6 +1930,7 @@ function tick(now) {
   dust.uniforms.uResY.value = drawSize.y; dust.uniforms.uFocus.value = focusDist; dust.uniforms.uAperture.value = params.dof; dust.uniforms.uTime.value = state.simT;
   bloomPass.strength = params.bloom;
   lensPass.uniforms.uTime.value = state.simT;
+  for (const f of frameHooks) f(raw, now);
 
   composer.render(raw);
 
@@ -1915,7 +1979,7 @@ canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); $('#fai
 window.__herb = {
   warp(sec, dt = 1 / 60) { for (let t = 0; t < sec; t += dt) { state.simT += dt; herb.step(dt, state.simT); } },
   pause(on) { paused = on; }, tick: () => tick(performance.now()),
-  setQuality: (q) => setQuality(q, true), setPreset, params, state, get herb() { return herb; }, THREE, renderer, composer,
+  setQuality: (q) => setQuality(q, true), setPreset, params, state, get herb() { return herb; }, THREE, renderer, composer, camera, controls, scene,
 };
 requestAnimationFrame(frame);
 </script>
