@@ -867,7 +867,7 @@ function GEN() {
         b.end();
       }
     }
-    const petalDesc = (F, extra) => Object.assign({ F, az: 0, r0: 0, y0: 0, len: 0.45 * R, wid: 0.13 * R, th0: 0.5, th1: 0.9, bend: 1.5, hood: 0.25, cup: cupK, wave: 0.04, wrap: 0.35, twist: 0, veinN: 15, veinK, tipC: 0.25, claw: 0.28, clawU: 0.4, cB: C.base, cM: C.petal, cT: C.tip, tipAmt: 1, gain: 0.3, size: 1, line: 0.55, flex: 0.5, drift: 0 }, extra);
+    const petalDesc = (F, extra) => Object.assign({ F, az: 0, r0: 0, y0: 0, len: 0.45 * R, wid: 0.13 * R, th0: 0.5, th1: 0.9, bend: 1.5, hood: 0.25, cup: cupK, wave: 0.04, wrap: 0.35, twist: 0, veinN: 15, veinK, tipC: 0.25, claw: 0.28, clawU: 0.4, cB: C.base, cM: C.petal, cT: C.tip, tipAmt: 1, gain: 0.3, size: 1, line: 0.55, flex: 0.32, drift: 0 }, extra);
     // a dew bead: a ring facing the default camera (a lens), greener where it shows the leaf through it,
     // closed by a specular fleck; the strand tip is the glint the renderer may flare
     const VW = norm([0.59, 0.28, 0.76]), E1 = norm(cross([0, 1, 0], VW)), E2 = cross(VW, E1);
@@ -1033,7 +1033,7 @@ function GEN() {
           const jl = g() * 0.0022, bright = sg[4] * (0.75 + 0.4 * r()), ph = r();
           for (let k = 0; k < K; k++) {
             const q = k ? clamp((k - 1 + ph) / (K - 1.5), 0, 1) : 0, rho = lerp(sg[2], sg[3], q), a = lerp(sg[0], sg[1], sstep(0, 1, q)) + jl / Math.max(rho, 0.02), p = LP(rho, a, 0.002);
-            b.pt(k, p[0], p[1], p[2], mix(cVein, C.leaf, 0.35 * (rho / Rr)), 0.75 * bright * sstep(0.02 * Rr, 0.14 * Rr, rho), 0.55, 0.12 * (rho / Rr), 0.85, 0);
+            b.pt(k, p[0], p[1], p[2], mix(cVein, C.leaf, 0.35 * (rho / Rr)), 0.75 * bright * sstep(0.02 * Rr, 0.14 * Rr, rho), 0.55, 0.05 * (rho / Rr), 0.85, 0);
           }
           b.end();
         }
@@ -1046,13 +1046,13 @@ function GEN() {
           if (arc) { rho = rho0; a = a0 + (q * 0.16 * Rr) / Math.max(rho0, 0.05); } else { a = a0 + da * q; rho = rho0 + 0.17 * Rr * q; }
           rho = Math.min(rho, rimR(a) * 0.985);
           const p = LP(rho, a, 0);
-          b.pt(k, p[0], p[1], p[2], mix(cFill, cVein, 0.15 * (rho / Rr)), 1.5 * bright, 0.5, 0.1 * (rho / Rr), arc ? 0.6 : 0.95, 0);
+          b.pt(k, p[0], p[1], p[2], mix(cFill, cVein, 0.15 * (rho / Rr)), 1.5 * bright, 0.5, 0.04 * (rho / Rr), arc ? 0.6 : 0.95, 0);
         }
         b.end();
       }
       for (let i = 0; i < nRim; i++) {
         const a0 = r() * TAU, da = 0.18 / (K - 1), bright = 0.75 + 0.4 * r(), inset = 0.995 - 0.012 * r();
-        for (let k = 0; k < K; k++) { const a = a0 + da * k, p = LP(rimR(a) * inset, a, 0.002); b.pt(k, p[0], p[1], p[2], cRim, 0.7 * bright, 0.6, 0.12, 0.85, 0); }
+        for (let k = 0; k < K; k++) { const a = a0 + da * k, p = LP(rimR(a) * inset, a, 0.002); b.pt(k, p[0], p[1], p[2], cRim, 0.7 * bright, 0.6, 0.05, 0.85, 0); }
         b.end();
       }
       for (let i = 0; i < nNav; i++) {
@@ -1154,7 +1154,7 @@ function GEN() {
       const bud = [], cB = mix(C.base, C.stem, 0.35), cM = mix(C.base, C.petal, 0.5);
       for (let j = 0; j < 8; j++) {
         const inner = j >= 4;
-        bud.push(petalDesc(BF, { az: ((j % 4) / 4) * TAU + (inner ? Math.PI / 4 : 0) + (r() - 0.5) * 0.12, r0: 0.026, y0: inner ? 0.01 : 0, len: (inner ? 0.31 : 0.34) * (0.97 + 0.06 * r()), wid: inner ? 0.07 : 0.088, th0: 0.55, th1: -0.75, bend: 1, hood: 0, cup: 0.3, wave: 0, wrap: 0.62, veinN: 11, veinK: 0.5, tipC: 0.04, cB, cM, cT: C.tip, tipAmt: 1, gain: inner ? 0.2 : 0.3, flex: 0.3 }));
+        bud.push(petalDesc(BF, { az: ((j % 4) / 4) * TAU + (inner ? Math.PI / 4 : 0) + (r() - 0.5) * 0.12, r0: 0.026, y0: inner ? 0.01 : 0, len: (inner ? 0.31 : 0.34) * (0.97 + 0.06 * r()), wid: inner ? 0.07 : 0.088, th0: 0.55, th1: -0.75, bend: 1, hood: 0, cup: 0.3, wave: 0, wrap: 0.62, veinN: 11, veinK: 0.5, tipC: 0.04, cB, cM, cT: C.tip, tipAmt: 1, gain: inner ? 0.2 : 0.3, flex: 0.2 }));
       }
       for (let j = 0; j < 2; j++) bud.push(petalDesc(BF, { az: j * Math.PI + 0.8, r0: 0.022, y0: -0.01, len: 0.11, wid: 0.04, th0: 0.5, th1: 0.95, bend: 1.2, hood: 0, cup: 0.35, wave: 0, wrap: 0.3, veinN: 7, veinK: 0.4, cB: scale(C.stem, 0.6), cM: mix(C.stem, C.base, 0.3), cT: mix(C.stem, C.tip, 0.4), tipAmt: 0.6, gain: 0.3, flex: 0.2 }));
       const nb = alloc(nBp, bud.map((d, i) => d.len * d.wid * (i >= 4 && i < 8 ? 0.6 : 1)));
@@ -1238,16 +1238,16 @@ function GEN() {
         const nLong = Math.min(6, Math.max(2, n - 1)), nX = Math.max(0, n - nLong - 1), fr = [0, 0.14, 0.32, 0.55, 0.78, 1];
         for (let m = 0; m < nLong; m++) {
           const fc = fr[Math.round((m * 5) / Math.max(1, nLong - 1))], costa = fc === 0, edgeV = fc === 1;
-          for (let k = 0; k < K; k++) { const t = (k / (K - 1)) * 0.995, p = WP(t, fc * chord(t)); b.pt(k, p[0], p[1], p[2], costa ? mix(col(t), WHITE, 0.4) : col(t), costa ? 0.45 : edgeV ? 0.34 : 0.27, costa ? 0.45 : 0.32, 0.02 + 0.1 * t, 1, 0); }
+          for (let k = 0; k < K; k++) { const t = (k / (K - 1)) * 0.995, p = WP(t, fc * chord(t)); b.pt(k, p[0], p[1], p[2], costa ? mix(col(t), WHITE, 0.4) : col(t), costa ? 0.45 : edgeV ? 0.34 : 0.27, costa ? 0.45 : 0.32, 0.01 + 0.03 * t, 1, 0); }
           b.end();
         }
         if (n > nLong) {
-          for (let k = 0; k < K; k++) { const q = (k / (K - 1)) * TAU, t = 0.86 + 0.035 * Math.cos(q), c = (0.065 + 0.05 * Math.sin(q)) * chord(0.86), p = WP(t, c); b.pt(k, p[0], p[1], p[2], cPt, 0.5, 0.45, 0.11, 1, 0); }
+          for (let k = 0; k < K; k++) { const q = (k / (K - 1)) * TAU, t = 0.86 + 0.035 * Math.cos(q), c = (0.065 + 0.05 * Math.sin(q)) * chord(0.86), p = WP(t, c); b.pt(k, p[0], p[1], p[2], cPt, 0.5, 0.45, 0.035, 1, 0); }
           b.end();
         }
         for (let m = 0; m < nX; m++) {
           const t0 = 0.05 + (0.9 * (m + 0.5)) / nX + (r() - 0.5) * 0.02, bow = (r() - 0.5) * 0.02;
-          for (let k = 0; k < K; k++) { const q = k / (K - 1), t = t0 + bow * Math.sin(Math.PI * q), p = WP(t, q * chord(t)); b.pt(k, p[0], p[1], p[2], col(t), 0.2, 0.28, 0.02 + 0.1 * t, 0.9, 0); }
+          for (let k = 0; k < K; k++) { const q = k / (K - 1), t = t0 + bow * Math.sin(Math.PI * q), p = WP(t, q * chord(t)); b.pt(k, p[0], p[1], p[2], col(t), 0.2, 0.28, 0.01 + 0.03 * t, 0.9, 0); }
           b.end();
         }
       }
