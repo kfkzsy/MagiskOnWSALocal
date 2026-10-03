@@ -1177,15 +1177,15 @@ void main() {
   col = mix(col, vec3(max(col.r, max(col.g, col.b))), 0.25 * tip * fiber);   // tips catch the light white
   vGlint = 0.0;
   if (aux.w > 0.0) {
-    // dew: a hard pin-point; the strand's first particle also flares into a star whenever its
-    // random facet mirrors the key light into the camera, and twinkles slowly
+    // dew: a hard pin-point; the strand's last particle (a free tip) also flares into a star
+    // whenever its random facet mirrors the key light into the camera, and twinkles slowly
     float h = float((uint(id >> 4) * 2654435761u) >> 8) / 16777216.0;
     vec3 fn = normalize(vec3(fract(h * 17.0) - 0.5, fract(h * 31.0) - 0.15, fract(h * 47.0) - 0.5));
     float flash = pow(max(0.0, dot(reflect(normalize(p - cameraPosition), fn), uKey)), 24.0);
     float tw = pow(0.5 + 0.5 * sin(uTime * (1.1 + 2.0 * h) + h * 90.0), 10.0) * uMotion;
     col = mix(col, vec3(luma(col)) + 0.15, 0.5 * aux.w);
     vAlpha *= 1.0 + 2.0 * aux.w;
-    if (k == 0) {
+    if (k == 15) {
       vGlint = aux.w * (0.3 + 2.2 * flash + 1.2 * tw);
       vShape = vec3(max(0.9 * uDpr, core * 0.5), 0.0, max(size, 18.0 * uDpr * min(1.0, 0.45 + vGlint)));
       size = vShape.z;
@@ -1209,11 +1209,11 @@ void main() {
   if (vGlint > 0.0) {
     // dew star, in pixel units: pin-point core, four thin rays, a faint chromatic ring
     vec2 q = abs(d) * vShape.z * 0.5;
-    float cw = vShape.x * vShape.x, len = vShape.z * 0.1;
+    float cw = vShape.x * vShape.x, len = vShape.z * 0.16;
     float rays = exp(-q.x / len - q.y * q.y / cw) + exp(-q.y / len - q.x * q.x / cw);
     float core = exp(-dot(q, q) / cw);
-    vec3 ring = vec3(0.45, 0.7, 1.0) * exp(-pow(sqrt(r2) - 0.42, 2.0) * 300.0) * 0.12;
-    gl_FragColor = vec4((normalize(vColor + 0.05) * 0.9 * (core * 1.5 + rays) + ring) * vGlint * uStar, 1.0);
+    vec3 ring = vec3(0.45, 0.7, 1.0) * exp(-pow(sqrt(r2) - 0.42, 2.0) * 300.0) * 0.07;
+    gl_FragColor = vec4((normalize(vColor + 0.05) * 0.9 * (core * 1.3 + rays * 1.5) + ring) * vGlint * uStar, 1.0);
     return;
   }
   // in focus: a sharp core over a faint skirt; defocused: a flat disc with a brighter rim (macro bokeh)
