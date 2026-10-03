@@ -1603,12 +1603,16 @@ class Herbarium {
   // each travels — seeds ride the wind, pieces lying low drift, the lotus' visitor flies, petals fall.
   scanGroups(t) {
     const P = this.tPos.image.data, A = (this.grpSrc = this.tAux.image.data), M = new Float64Array(256 * 10);
-    for (let i = 0; i < A.length; i += 4) {
-      const g = A[i + 2];
+    // tags cover whole strands and strands are smooth, so a strand's base, middle and tip stand for it
+    for (let s = 0; s < A.length; s += K * 4) {
+      const g = A[s + 2];
       if (!(g > 0.5)) continue;
-      const o = Math.min(255, Math.round(g)) * 10, x = P[i], y = P[i + 1], z = P[i + 2];
-      M[o]++; M[o + 1] += x; M[o + 2] += y; M[o + 3] += z;
-      M[o + 4] += x * x; M[o + 5] += y * y; M[o + 6] += z * z; M[o + 7] += x * y; M[o + 8] += x * z; M[o + 9] += y * z;
+      const o = Math.min(255, Math.round(g)) * 10;
+      for (const k of [0, 7, K - 1]) {
+        const i = s + k * 4, x = P[i], y = P[i + 1], z = P[i + 2];
+        M[o]++; M[o + 1] += x; M[o + 2] += y; M[o + 3] += z;
+        M[o + 4] += x * x; M[o + 5] += y * y; M[o + 6] += z * z; M[o + 7] += x * y; M[o + 8] += x * z; M[o + 9] += y * z;
+      }
     }
     // eigenvectors of a symmetric 3x3 by Jacobi sweeps, smallest variance first
     const eig = (c) => {
