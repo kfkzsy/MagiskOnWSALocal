@@ -434,7 +434,7 @@ const PRESETS = {
   },
   dandelion: {
     flower: 'dandelion', seed: 5,
-    bloom: { seeds: 220, radius: 0.48, pappus: 0.26, spread: 1, blown: 40, drifting: 8 },
+    bloom: { seeds: 220, radius: 0.48, pappus: 0.26, spread: 1, blown: 50, drifting: 8 },
     capitulum: { size: 0.3, bud: true },
     palette: { pappus: '#eef3ff', beak: '#f4f1ea', achene: '#9a6b3a', receptacle: '#d8c49a', bract: '#5e9e48', floret: '#ffd23a', stem: '#9cc77e', leaf: '#5e9e48' },
     stem: { length: 1.36, bend: 0.16, thickness: 0.018 },
@@ -1062,7 +1062,7 @@ function GEN() {
           }
           // brightest where the bristles leave the beak, fading outward: each parachute reads as a soft star
           const tip = k === K - 1, jt = 0.0014 * t * (0.5 + fuzz), fade = (0.06 + 0.94 * sstep(0.02, 0.2, t)) * (1 - 0.55 * sstep(0.3, 1, t));
-          pt(k, x + g() * jt, y + g() * jt, z + g() * jt, C.pappus, 0.3 * bright * fade * (tip ? 2.4 : 1), tip ? 0.95 : 0.42, 0.05 + 0.25 * t * t, 0.85, drift);
+          pt(k, x + g() * jt, y + g() * jt, z + g() * jt, C.pappus, 0.36 * bright * fade * (tip ? 2.4 : 1), tip ? 0.95 : 0.42, 0.05 + 0.25 * t * t, 0.85, drift);
         }
         b.end();
         if (r() < glint) b.tag(b.s - 1, b.s, null, 0.15 + 0.12 * r());
@@ -1094,6 +1094,10 @@ function GEN() {
       pos.push({ d, dg, gone: blown > 0 && (dg > cg || (dg > cg2 && r() < 0.4)), at: [H[0] + d[0] * rd, H[1] + d[1] * rd * 0.7, H[2] + d[2] * rd] });
     }
     const head = pos.filter((p) => !p.gone).sort((p, q) => q.dg - p.dg), bare = pos.filter((p) => p.gone);
+    // seeds on the rim of the bald patch are working loose: tilted downwind, lifted out of their pits
+    const loose = head.filter((p) => blown > 0 && p.dg > Math.cos(blown + 0.3) && r() < 0.55);
+    loose.forEach((p) => { p.pit = p.at; p.pd = p.d; p.d = norm(add(p.d, G, 0.22 + 0.22 * r())); p.at = add(p.pit, p.d, 0.01 + 0.02 * r()); });
+    const pits = bare.concat(loose);
     const Dn = D + (D > 0 ? 1 : 0), Mh = head.length;
     const B = Math.max(4, Math.floor((nSeed - 4 * (Mh + Dn)) / (Mh + 1.4 * Dn))), Bf = Math.floor(B * 1.4);
     const La = 0.15 * Rs, Lb = 0.76 * Rs - rd - La;
@@ -1132,12 +1136,12 @@ function GEN() {
     // --- receptacle: a pale dome, its pits bare where the seeds have gone -------------------------------
     b.part('receptaculum');
     {
-      const nPit = Math.min(bare.length, Math.floor(nRec * 0.5)), nSkin = nRec - nPit, dome = (d, out) => { out[0] = H[0] + d[0] * rd; out[1] = H[1] + d[1] * rd * 0.7; out[2] = H[2] + d[2] * rd; };
+      const nPit = Math.min(pits.length, Math.floor(nRec * 0.5)), nSkin = nRec - nPit, dome = (d, out) => { out[0] = H[0] + d[0] * rd; out[1] = H[1] + d[1] * rd * 0.7; out[2] = H[2] + d[2] * rd; };
       for (let i = 0; i < nPit; i++) {
-        const p = bare[i], [u, w] = frame(p.d), pr = 0.42 * rd * Math.sqrt(4 / (M * 0.86)), bright = 0.8 + 0.4 * r();
+        const p = pits[i], c0 = p.pit || p.at, [u, w] = frame(p.pd || p.d), pr = 0.42 * rd * Math.sqrt(4 / (M * 0.86)), bright = 0.8 + 0.4 * r();
         for (let k = 0; k < K; k++) {
           const a = (k / (K - 1)) * TAU, cs = Math.cos(a) * pr, sn = Math.sin(a) * pr;
-          pt(k, p.at[0] + u[0] * cs + w[0] * sn, p.at[1] + (u[1] * cs + w[1] * sn) * 0.7, p.at[2] + u[2] * cs + w[2] * sn, mix(C.rec, C.achene, 0.35), 0.3 * bright, 0.5, 0, 0.55, 0);
+          pt(k, c0[0] + u[0] * cs + w[0] * sn, c0[1] + (u[1] * cs + w[1] * sn) * 0.7, c0[2] + u[2] * cs + w[2] * sn, mix(C.rec, C.achene, 0.35), 0.5 * bright, 0.5, 0, 0.55, 0);
         }
         b.end();
       }
@@ -1147,7 +1151,7 @@ function GEN() {
         for (let k = 0; k < K; k++) {
           const s = (k / (K - 1)) * 0.45, d = norm(add(scale(q, Math.cos(s)), tdir, Math.sin(s)));
           dome(d, tmp3);
-          pt(k, tmp3[0], tmp3[1], tmp3[2], C.rec, 0.17 * bright * (i % 2 ? 1.3 : 1), 0.5, 0, 0.45, 0);
+          pt(k, tmp3[0], tmp3[1], tmp3[2], C.rec, 0.17 * bright * (i % 2 ? 2 : 1), 0.5, 0, 0.45, 0);
         }
         b.end();
       }
@@ -1182,7 +1186,7 @@ function GEN() {
       for (let i = NL - 1; i >= 0 && usedL < lig; i--) {
         const q = Math.sqrt((i + 0.5) / NL), q2 = q * q;
         usedL += strap(F, nf, e1, e2, i * GA + ph, {
-          r0: Rf * 0.14 * q, h0: Rf * 0.05 * (1 - q2), len: Rf * (0.16 + 0.68 * Math.pow(q, 1.6)) * (0.84 + 0.32 * r()), wid: Rf * (0.026 + 0.05 * q), el0: lerp(1.45, 0.42, Math.pow(q, 0.8)), el1: q < 0.3 ? 1.9 : lerp(1.4, -0.14, Math.pow(q, 1.1)) + (r() - 0.5) * 0.35, bend: 0.8,
+          r0: Rf * 0.14 * q, h0: Rf * 0.05 * (1 - q2), len: Rf * (0.2 + 0.62 * Math.pow(q, 1.3)) * (0.88 + 0.24 * r()), wid: Rf * (0.03 + 0.05 * q), el0: lerp(1.45, 0.42, Math.pow(q, 0.8)), el1: q < 0.3 ? 1.9 : lerp(1.4, -0.14, Math.pow(q, 1.1)) + (r() - 0.5) * 0.35, bend: 0.8,
           cup: 0.35, twist: (r() - 0.5) * 1.1, teeth: q > 0.3 ? 0.08 : 0, cBase: cTube, cMid: mix(C.floret, C.orange, Math.pow(1 - q, 1.5) * 0.8), cTip: mix(C.floret, WHITE, 0.25), tipAmt: 0.35 * q,
           gain: 0.66 * (0.8 + 0.3 * q), size: 0.62, flex: 0.06, line: 0.55,
         }, Math.min(spl(q) - 1, lig - usedL - (q > 0.3 ? 1 : 0)));
