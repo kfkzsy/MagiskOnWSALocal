@@ -311,10 +311,12 @@ body.bare .hud:not(.keep) { opacity: 0; visibility: hidden; }
 .marks i:nth-child(2) { right: 7px; top: 7px; border-width: 1px 1px 0 0; }
 .marks i:nth-child(3) { left: 7px; bottom: 7px; border-width: 0 0 1px 1px; }
 .marks i:nth-child(4) { right: 7px; bottom: 7px; border-width: 0 1px 1px 0; }
+/* the plate's imprint line, centred in the bottom margin like an engraver's legend */
 #catalog {
-  position: absolute; left: 64px; top: calc(52px + env(safe-area-inset-top, 0px)); white-space: nowrap;
-  font: 9.5px var(--mono); letter-spacing: 0.12em; color: #4b5260; font-variant-numeric: tabular-nums;
+  position: absolute; left: 50%; bottom: calc(7px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); white-space: nowrap;
+  font: 9px/11px var(--mono); letter-spacing: 0.14em; color: #4b5260; font-variant-numeric: tabular-nums;
 }
+@media (max-width: 1240px) { #catalog { display: none; } }
 
 /* calligraphy: a vertical inscription in the empty right margin, written once the bloom settles */
 .hud.poem {
@@ -2382,7 +2384,10 @@ function autoQuality() {
     if (now > art.nextRects || !art.rects) { // layout reads twice a second, never per label
       art.nextRects = now + 500;
       const pr = poemEl.getBoundingClientRect();
-      art.rects = { poem: pr.width > 0 && tuneEl.hidden && !body.classList.contains('bare') ? pr : null, spec: specEl.getBoundingClientRect(), stats: statsBox.getBoundingClientRect() };
+      art.rects = {
+        poem: pr.width > 0 && tuneEl.hidden ? pr : null, tune: tuneEl.hidden ? null : tuneEl.getBoundingClientRect(),
+        spec: specEl.getBoundingClientRect(), stats: statsBox.getBoundingClientRect(),
+      };
     }
     if (!art.bloomed || !art.show || narrowMQ.matches || !art.labels.length) { setCrowded(false); return; }
     layout(Math.min(raw, 0.1));
@@ -2410,7 +2415,7 @@ function autoQuality() {
     for (const l of art.labels) {
       const s = toScreen(l.p, l.s || (l.s = {}));
       // off stage, behind the camera, or tucked under a HUD panel: no callout
-      const on = s.z < 1 && s.x > x0 - 40 && s.x < x1 + 40 && s.y > 0 && s.y < H && !inside(s, R.spec) && !inside(s, R.poem) && !inside(s, R.stats);
+      const on = s.z < 1 && s.x > x0 - 40 && s.x < x1 + 40 && s.y > 0 && s.y < H && !inside(s, R.spec) && !inside(s, R.poem) && !inside(s, R.stats) && !inside(s, R.tune);
       if (on !== l.shown) { l.shown = on; l.g.style.display = on ? '' : 'none'; }
       if (!on) continue;
       const dx = s.x - sA.x;
@@ -2440,6 +2445,11 @@ function autoQuality() {
       for (const l of list) { c = sd > 0 ? Math.max(c, l.s.x + 26) : Math.min(c, l.s.x - 26); wmax = Math.max(wmax, l.w); }
       c = sd > 0 ? Math.min(c, x1 - wmax) : Math.max(c, x0 + wmax);
       let top = y0 + 12, bottom = y1 - 12;
+      if (sd > 0 && R.tune && c + wmax > R.tune.left - 16) {
+        // the open render panel: go below it, or failing that, keep left of it
+        if (R.tune.bottom + 18 + list.length * 27 < bottom) top = Math.max(top, R.tune.bottom + 18);
+        else c = Math.max(sA.x + 12, R.tune.left - 16 - wmax);
+      }
       const lo = sd > 0 ? c : c - wmax, hi = sd > 0 ? c + wmax : c;
       if (sd > 0 && R.poem && hi > R.poem.left - 16) {
         // the inscription owns the upper right: stack below it, or let it make way if there is no room
