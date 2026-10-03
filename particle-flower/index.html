@@ -1,0 +1,1923 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Particle Herbarium</title>
+<meta name="description" content="GPU 粒子花卉标本：牡丹、玫瑰、荷花、蒲公英由数十万粒子与纤维实时生长，可在左侧编辑 JSON 现场改写。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500&display=swap&text=牡丹玫瑰荷花蒲公英芍药科蔷薇莲菊粒子标本馆">
+<style>
+@property --accent { syntax: "<color>"; inherits: true; initial-value: #ff5c8a; }
+/* Layout: a full-bleed particle stage; the live config docks left like a lab notebook,
+   while the specimen label, render controls and readouts float on the stage. Dark by design. */
+:root {
+  --ink: #040507;
+  --panel: #0a0c10;
+  --panel-hi: #12151c;
+  --rule: #1d212b;
+  --fg: #d8dce5;
+  --bright: #f3f4f8;
+  --muted: #767e8e;
+  --faint: #3c424e;
+  --accent: #ff5c8a;
+  --ok: #7fe0a6;
+  --err: #ff7070;
+  --glass: rgba(9, 11, 15, 0.62);
+  --t-key: #c3b2ff; --t-str: #a4e4c4; --t-num: #ffbc7d; --t-bool: #ff8fab;
+  --t-punc: #5a616f; --t-com: #535a69; --t-type: #82cfff; --t-fn: #c3b2ff; --t-uni: #ffd58a; --t-kw: #ff8fab;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, "PingFang SC", "Microsoft YaHei", monospace;
+  --serif: "Instrument Serif", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  --cjk: "Noto Serif SC", "Songti SC", "STSong", "SimSun", serif;
+  --ui: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
+  --panel-w: clamp(340px, 32vw, 500px);
+  --lh: 20px;
+  color-scheme: dark;
+  transition: --accent 1.2s ease;
+}
+html, body { height: 100%; }
+body {
+  margin: 0; overflow: hidden; background: var(--ink); color: var(--fg);
+  font: 12px/1.5 var(--mono); -webkit-font-smoothing: antialiased;
+  --panel-off: var(--panel-w);
+}
+body.code-closed, body.bare { --panel-off: 0px; }
+[hidden] { display: none !important; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+svg { display: block; }
+
+#gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; outline: none; }
+
+/* ---------- code panel ---------- */
+#code {
+  position: fixed; left: 0; top: 0; bottom: 0; width: var(--panel-w); z-index: 4;
+  display: flex; flex-direction: column; min-width: 0;
+  background: linear-gradient(180deg, rgba(10, 12, 16, 0.94), rgba(7, 8, 11, 0.94));
+  border-right: 1px solid var(--rule);
+  transition: transform 0.5s cubic-bezier(.2, .7, .2, 1);
+}
+body.code-closed #code, body.bare #code { transform: translateX(-102%); }
+.ed-head {
+  display: flex; align-items: center; gap: 14px; height: 42px; flex: none;
+  padding: env(safe-area-inset-top, 0px) 10px 0 14px; border-bottom: 1px solid var(--rule);
+}
+.lights { display: flex; gap: 6px; }
+.lights i { width: 9px; height: 9px; border-radius: 50%; background: #2a2f3a; }
+.lights i:first-child { background: color-mix(in srgb, var(--accent) 70%, #2a2f3a); }
+.tabs { display: flex; height: 100%; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.tab {
+  height: 100%; padding: 0 12px; color: var(--muted); font-size: 11.5px; white-space: nowrap;
+  border-bottom: 1px solid transparent; margin-bottom: -1px;
+}
+.tab[aria-selected="true"] { color: var(--bright); border-bottom-color: var(--accent); background: rgba(255, 255, 255, 0.025); }
+.tab:hover { color: var(--fg); }
+.ed-head .icon { margin-left: auto; }
+.ed-tools {
+  display: flex; align-items: center; gap: 8px; padding: 8px 12px 8px 16px; flex: none;
+  color: var(--muted); font-size: 11px; border-bottom: 1px solid var(--rule);
+}
+.ed-tools .path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ed-tools .path b { color: var(--fg); font-weight: 500; }
+.ed-tools .sp { flex: 1; }
+.ro { color: var(--faint); border: 1px solid var(--rule); padding: 1px 6px; border-radius: 3px; font-size: 10px; }
+.mini {
+  font-size: 11px; color: var(--muted); padding: 3px 8px; border: 1px solid var(--rule); border-radius: 3px;
+  font-family: var(--ui);
+}
+.mini:hover { color: var(--fg); border-color: color-mix(in srgb, var(--accent) 50%, var(--rule)); }
+.editor {
+  position: relative; flex: 1; min-height: 0; display: grid; grid-template-columns: 46px minmax(0, 1fr);
+  font: 12.5px/var(--lh) var(--mono); font-variant-ligatures: none;
+}
+.gutter { overflow: hidden; border-right: 1px solid rgba(255, 255, 255, 0.03); }
+#gutter { padding: 14px 10px 60px 0; text-align: right; color: var(--faint); user-select: none; will-change: transform; font-variant-numeric: tabular-nums; }
+#gutter div.cur { color: var(--muted); }
+#gutter div.err { color: var(--err); }
+.code { position: relative; overflow: hidden; min-width: 0; }
+.code pre, .code textarea {
+  position: absolute; inset: 0; margin: 0; padding: 14px 18px 60px 14px; border: 0;
+  font: inherit; letter-spacing: 0; white-space: pre; tab-size: 2; box-sizing: border-box;
+}
+.code pre { color: var(--fg); pointer-events: none; overflow: visible; will-change: transform; }
+.code textarea {
+  color: transparent; -webkit-text-fill-color: transparent; background: transparent; caret-color: var(--accent);
+  resize: none; outline: none; overflow: auto; scrollbar-width: thin; scrollbar-color: #262b36 transparent;
+}
+.code textarea::selection { background: color-mix(in srgb, var(--accent) 30%, transparent); }
+.editor.scrub textarea { cursor: ew-resize; }
+.line-hl { position: absolute; left: 0; right: 0; top: 0; height: var(--lh); background: rgba(255, 255, 255, 0.03); pointer-events: none; }
+.editor.err-line .line-hl { background: rgba(255, 90, 90, 0.08); }
+.t-key { color: var(--t-key); } .t-str { color: var(--t-str); } .t-num { color: var(--t-num); }
+.t-bool, .t-kw { color: var(--t-kw); } .t-punc { color: var(--t-punc); } .t-com { color: var(--t-com); font-style: italic; }
+.t-type { color: var(--t-type); } .t-fn { color: var(--t-fn); } .t-uni { color: var(--t-uni); }
+.t-color { position: relative; }
+.t-color::after {
+  content: ""; position: absolute; right: -24px; top: 50%; width: 9px; height: 9px; margin-top: -5px;
+  border-radius: 2px; background: var(--sw); box-shadow: 0 0 10px var(--sw);
+}
+.type-caret { display: inline-block; width: 7px; height: 14px; margin-bottom: -2px; background: var(--accent); animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.ed-status {
+  display: flex; align-items: center; gap: 8px; height: 30px; flex: none; padding: 0 14px calc(env(safe-area-inset-bottom, 0px)) 16px;
+  border-top: 1px solid var(--rule); color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums;
+}
+.ed-status .msg { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
+.ed-status .sp { flex: 1; }
+#st-pos { white-space: nowrap; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: none; }
+.dot.ok { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+.dot.busy { background: var(--t-num); animation: blink 0.6s steps(1) infinite; }
+.dot.err { background: var(--err); box-shadow: 0 0 8px var(--err); }
+.ed-status.err .msg { color: var(--err); }
+
+/* ---------- stage HUD ---------- */
+.hud { position: fixed; z-index: 3; pointer-events: none; }
+.hud button, .hud input, .tune, .presets { pointer-events: auto; }
+body.bare .hud:not(.keep) { opacity: 0; visibility: hidden; }
+.hud { transition: opacity 0.4s, left 0.5s cubic-bezier(.2, .7, .2, 1); }
+.icon {
+  width: 34px; height: 34px; display: grid; place-items: center; border-radius: 4px; color: var(--muted);
+  border: 1px solid var(--rule); background: var(--glass); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+}
+.icon:hover { color: var(--bright); border-color: color-mix(in srgb, var(--accent) 45%, var(--rule)); }
+.icon[aria-pressed="true"], .icon[aria-expanded="true"] { color: var(--bright); border-color: color-mix(in srgb, var(--accent) 55%, var(--rule)); }
+.icon svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.ed-head .icon { width: 28px; height: 28px; border: 0; background: none; }
+
+.topbar {
+  top: 0; left: var(--panel-off); right: 0; display: flex; align-items: center; gap: 12px;
+  padding: calc(14px + env(safe-area-inset-top, 0px)) 18px 0 18px; pointer-events: none;
+}
+.brand { display: flex; flex-direction: column; line-height: 1.2; pointer-events: none; }
+.brand b { font: 600 11px var(--mono); letter-spacing: 0.22em; text-transform: uppercase; color: var(--bright); }
+.brand span { font: 500 10.5px var(--cjk); letter-spacing: 0.5em; color: var(--muted); margin-top: 3px; }
+.presets {
+  display: flex; gap: 2px; padding: 3px; margin-inline: auto; border: 1px solid var(--rule); border-radius: 5px;
+  background: var(--glass); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+}
+.presets button {
+  display: flex; align-items: baseline; gap: 7px; padding: 7px 13px; border-radius: 3px;
+  font: 500 13px/1 var(--ui); color: var(--muted); letter-spacing: 0.08em; white-space: nowrap;
+}
+.presets button em { font: 400 9.5px var(--mono); font-style: normal; color: var(--faint); letter-spacing: 0; }
+.presets button:hover { color: var(--fg); }
+.presets button[aria-selected="true"] {
+  color: var(--bright);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.presets button[aria-selected="true"] em { color: var(--accent); }
+.actions { display: flex; gap: 6px; }
+#btn-code { flex: none; }
+
+.hint {
+  top: calc(64px + env(safe-area-inset-top, 0px)); left: calc(var(--panel-off) + (100vw - var(--panel-off)) / 2);
+  transform: translateX(-50%); margin: 0; padding: 0 16px; max-width: calc(100vw - var(--panel-off) - 32px);
+  color: var(--muted); font: 11px/1.6 var(--ui); letter-spacing: 0.04em; text-align: center; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; pointer-events: none; transition: opacity 1.2s, left 0.5s cubic-bezier(.2, .7, .2, 1);
+}
+.hint kbd { font: 500 10px var(--mono); color: var(--fg); padding: 1px 5px; border: 1px solid var(--rule); border-radius: 3px; margin-right: 4px; }
+.hint.gone { opacity: 0; }
+
+.tune {
+  top: calc(62px + env(safe-area-inset-top, 0px)); right: 18px; width: 232px; box-sizing: border-box;
+  padding: 14px 14px 12px; display: grid; gap: 9px; border: 1px solid var(--rule); border-radius: 5px;
+  background: var(--glass); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+}
+.tune h2 { margin: 0 0 2px; display: flex; justify-content: space-between; font: 600 10px var(--mono); letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); }
+.tune .row { display: grid; gap: 2px; }
+.tune label { display: flex; justify-content: space-between; align-items: baseline; font: 11.5px var(--ui); color: var(--fg); }
+.tune label small { font: 10px var(--mono); color: var(--faint); margin-left: 6px; }
+.tune output { font: 11px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.tune input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 16px; margin: 0; background: transparent; --pct: 50%; }
+.tune input[type="range"]::-webkit-slider-runnable-track { height: 2px; border-radius: 2px; background: linear-gradient(to right, var(--accent) var(--pct), #262b35 var(--pct)); }
+.tune input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 11px; height: 11px; margin-top: -4.5px; border-radius: 50%; background: var(--bright); box-shadow: 0 0 0 3px rgba(4, 5, 7, 0.8); }
+.tune input[type="range"]::-moz-range-track { height: 2px; background: #262b35; }
+.tune input[type="range"]::-moz-range-progress { height: 2px; background: var(--accent); }
+.tune input[type="range"]::-moz-range-thumb { width: 11px; height: 11px; border: 0; border-radius: 50%; background: var(--bright); }
+.seg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; padding: 2px; border: 1px solid var(--rule); border-radius: 4px; }
+.seg button { padding: 5px 0; font: 10.5px var(--mono); color: var(--muted); border-radius: 2px; font-variant-numeric: tabular-nums; }
+.seg button[aria-pressed="true"] { color: var(--bright); background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.tune .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 2px; }
+.tune .btns button { padding: 7px 0; border: 1px solid var(--rule); border-radius: 3px; font: 11.5px var(--ui); color: var(--fg); }
+.tune .btns button:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--rule)); }
+
+.specimen { left: calc(var(--panel-off) + 30px); bottom: calc(26px + env(safe-area-inset-bottom, 0px)); max-width: min(440px, calc(100vw - var(--panel-off) - 60px)); pointer-events: none; }
+.specimen .eyebrow { display: flex; align-items: center; gap: 10px; font: 500 10px var(--mono); letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); }
+.specimen .eyebrow::after { content: ""; width: 56px; height: 1px; background: var(--accent); }
+.specimen h1 { margin: 10px 0 6px; font: italic 400 clamp(30px, 3.3vw, 50px)/1 var(--serif); letter-spacing: -0.01em; color: var(--bright); text-wrap: balance; }
+.specimen .zh { display: flex; align-items: baseline; gap: 12px; font: 500 15px var(--cjk); letter-spacing: 0.35em; color: var(--fg); }
+.specimen .zh span { font: 11px var(--mono); letter-spacing: 0.02em; color: var(--muted); }
+.specimen .meta { display: flex; align-items: center; gap: 14px; margin-top: 12px; font: 10.5px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.scalebar { display: flex; flex-direction: column; gap: 3px; font: 10px var(--mono); color: var(--muted); }
+.scalebar i { display: block; height: 5px; width: 60px; border: 1px solid var(--muted); border-top: 0; box-sizing: border-box; transition: width 0.2s; }
+
+.stats { right: 18px; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); text-align: right; font: 10.5px/1.7 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; pointer-events: none; }
+.stats b { color: var(--fg); font-weight: 500; }
+
+.toast {
+  top: calc(104px + env(safe-area-inset-top, 0px)); left: calc(var(--panel-off) + (100vw - var(--panel-off)) / 2); transform: translate(-50%, -6px);
+  padding: 7px 12px; border: 1px solid var(--rule); border-radius: 4px; background: var(--glass); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  font: 12px var(--ui); color: var(--fg); opacity: 0; transition: opacity 0.3s, transform 0.3s; pointer-events: none; white-space: nowrap;
+}
+.toast.on { opacity: 1; transform: translate(-50%, 0); }
+.fail {
+  inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; background: var(--ink); z-index: 9;
+  font: 13px/1.8 var(--ui); color: var(--muted);
+}
+.fail b { display: block; color: var(--bright); font-size: 15px; margin-bottom: 6px; }
+.fail[hidden] { display: none; }
+.vignette { inset: 0; z-index: 1; pointer-events: none; background: repeating-linear-gradient(180deg, rgba(255, 255, 255, 0.012) 0 1px, transparent 1px 3px); }
+
+/* ---------- narrow screens: stage first, code as a bottom sheet ---------- */
+@media (max-width: 860px) {
+  body { --panel-off: 0px; }
+  #code {
+    top: auto; right: 0; width: auto; height: min(52vh, 480px); border-right: 0; border-top: 1px solid var(--rule);
+    border-radius: 10px 10px 0 0; transform: translateY(103%);
+  }
+  body.code-open #code { transform: none; }
+  body.code-closed #code { transform: translateY(103%); }
+  .ed-head { padding-top: 0; }
+  .topbar { flex-wrap: wrap; padding: calc(10px + env(safe-area-inset-top, 0px)) 12px 0; gap: 8px; }
+  .brand { display: none; }
+  .presets { order: 3; flex-basis: 100%; justify-content: space-between; margin: 0; }
+  .presets button { flex: 1; justify-content: center; padding: 8px 4px; font-size: 12.5px; }
+  .presets button em { display: none; }
+  .actions { margin-left: auto; }
+  #btn-full { display: none; }
+  .hint { top: calc(104px + env(safe-area-inset-top, 0px)); white-space: normal; font-size: 10.5px; width: calc(100vw - 32px); }
+  .tune { top: calc(104px + env(safe-area-inset-top, 0px)); right: 12px; width: min(232px, calc(100vw - 24px)); }
+  .specimen { left: 16px; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); max-width: calc(100vw - 32px); }
+  .specimen h1 { font-size: 28px; }
+  body.code-open .specimen, body.code-open .hint { opacity: 0; }
+  .stats { display: none; }
+  .toast { top: calc(150px + env(safe-area-inset-top, 0px)); }
+}
+@media (min-width: 861px) { #btn-close-code { display: none; } }
+@media (prefers-reduced-motion: reduce) {
+  :root { transition: none; }
+  #code, .hud, .toast { transition: none; }
+}
+</style>
+</head>
+<body>
+<canvas id="gl" aria-label="粒子花卉三维视图：拖动旋转，滚轮缩放，单击冲击" tabindex="0"></canvas>
+<div class="hud vignette keep" aria-hidden="true"></div>
+
+<aside id="code" aria-label="配置编辑器">
+  <header class="ed-head">
+    <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+    <div class="tabs" role="tablist" aria-label="源文件">
+      <button class="tab" role="tab" id="tab-json" data-tab="json" aria-selected="true">bloom.json</button>
+      <button class="tab" role="tab" id="tab-flow" data-tab="flow" aria-selected="false">flow.frag</button>
+      <button class="tab" role="tab" id="tab-point" data-tab="point" aria-selected="false">particle.vert</button>
+    </div>
+    <button class="icon" id="btn-close-code" aria-label="收起代码">
+      <svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
+    </button>
+  </header>
+  <div class="ed-tools">
+    <span class="path" id="ed-path">specimens / <b>peony</b> / bloom.json</span>
+    <span class="sp"></span>
+    <span class="ro" id="ed-ro" hidden>只读</span>
+    <button class="mini" id="btn-reset" type="button">重置</button>
+    <button class="mini" id="btn-copy" type="button">复制</button>
+  </div>
+  <div class="editor" id="editor">
+    <div class="gutter"><div id="gutter"></div></div>
+    <div class="code">
+      <div class="line-hl" id="line-hl"></div>
+      <pre id="hl" aria-hidden="true"></pre>
+      <textarea id="src" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off" wrap="off" aria-label="花卉配置 JSON，修改后实时重新生长"></textarea>
+    </div>
+  </div>
+  <footer class="ed-status" id="ed-status">
+    <span class="dot busy" id="st-dot"></span>
+    <span class="msg" id="st-msg">正在加载渲染器…</span>
+    <span class="sp"></span>
+    <span id="st-pos">Ln 1, Col 1</span>
+  </footer>
+</aside>
+
+<header class="hud topbar">
+  <button class="icon" id="btn-code" aria-label="显示或隐藏代码 (C)" title="代码 (C)" aria-pressed="true">
+    <svg viewBox="0 0 24 24"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5M13.5 5l-3 14"/></svg>
+  </button>
+  <div class="brand"><b>Particle Herbarium</b><span>粒子标本馆</span></div>
+  <nav class="presets" role="tablist" aria-label="花种">
+    <button role="tab" data-p="peony" aria-selected="true"><em>01</em>牡丹</button>
+    <button role="tab" data-p="rose" aria-selected="false"><em>02</em>玫瑰</button>
+    <button role="tab" data-p="lotus" aria-selected="false"><em>03</em>荷花</button>
+    <button role="tab" data-p="dandelion" aria-selected="false"><em>04</em>蒲公英</button>
+  </nav>
+  <div class="actions">
+    <button class="icon" id="btn-spin" aria-pressed="true" aria-label="自动旋转 (空格)" title="自动旋转 (空格)">
+      <svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v4.5h-4.5"/></svg>
+    </button>
+    <button class="icon" id="btn-burst" aria-label="冲击 (B)" title="冲击 (B)">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.2"/><path d="M12 2.5v4M12 17.5v4M2.5 12h4M17.5 12h4M5.3 5.3l2.8 2.8M15.9 15.9l2.8 2.8M5.3 18.7l2.8-2.8M15.9 8.1l2.8-2.8"/></svg>
+    </button>
+    <button class="icon" id="btn-regrow" aria-label="重新生长 (G)" title="重新生长 (G)">
+      <svg viewBox="0 0 24 24"><path d="M12 21v-8"/><path d="M12 13c0-4.2 3-7.5 8-7.5 0 5-3 7.5-8 7.5z"/><path d="M12 15.5c0-3.2-2.4-5.8-7-5.8 0 3.9 2.4 5.8 7 5.8z"/></svg>
+    </button>
+    <button class="icon" id="btn-full" aria-label="全屏 (F)" title="全屏 (F)">
+      <svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+    </button>
+    <button class="icon" id="btn-tune" aria-expanded="true" aria-controls="tune" aria-label="渲染参数" title="渲染参数">
+      <svg viewBox="0 0 24 24"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></svg>
+    </button>
+  </div>
+</header>
+
+<p class="hud hint" id="hint"><kbd>拖动</kbd>旋转　<kbd>滚轮</kbd>缩放　<kbd>划过</kbd>扰动　<kbd>单击</kbd>冲击　<kbd>1–4</kbd>换花　<kbd>Alt+拖数字</kbd>微调参数</p>
+
+<section class="hud tune" id="tune" aria-label="渲染参数">
+  <h2><span>Render</span><span id="tune-q">262K</span></h2>
+  <div id="sliders"></div>
+  <div class="row">
+    <label>粒子密度<small>particles</small></label>
+    <div class="seg" id="quality" role="group" aria-label="粒子密度">
+      <button data-q="low" aria-pressed="false">65K</button>
+      <button data-q="mid" aria-pressed="false">147K</button>
+      <button data-q="high" aria-pressed="true">262K</button>
+      <button data-q="ultra" aria-pressed="false">410K</button>
+    </div>
+  </div>
+  <div class="btns">
+    <button type="button" id="btn-hide">隐藏界面 H</button>
+    <button type="button" id="btn-defaults">恢复默认</button>
+  </div>
+</section>
+
+<section class="hud specimen" id="specimen" aria-live="polite">
+  <div class="eyebrow" id="sp-no">Specimen 01 / 04</div>
+  <h1 id="sp-latin">Paeonia suffruticosa</h1>
+  <div class="zh"><b id="sp-zh">牡丹</b><span id="sp-family">Paeoniaceae · 芍药科</span></div>
+  <div class="meta">
+    <div class="scalebar" aria-hidden="true"><i id="scale-i"></i><span id="scale-t">5 cm</span></div>
+    <span id="sp-count">— particles · — fibers</span>
+  </div>
+</section>
+
+<section class="hud stats" id="stats" aria-hidden="true"></section>
+<div class="hud toast" id="toast" role="status" aria-live="polite"></div>
+<div class="hud fail keep" id="fail" hidden>
+  <div><b>粒子舞台没能启动</b>需要支持 WebGL2 的浏览器，并能访问 cdn.jsdelivr.net 加载 three.js。<br>请换用最新版 Chrome、Edge、Safari 或 Firefox 再试。</div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+  }
+}
+</script>
+<script>
+  // If the module below never starts (blocked CDN, no WebGL2), say so instead of showing a black stage.
+  setTimeout(function () { if (!window.__herbStarted) document.getElementById('fail').hidden = false; }, 12000);
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GPUComputationRenderer } from 'three/addons/misc/GPUComputationRenderer.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => [...document.querySelectorAll(s)];
+const body = document.body;
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const narrowMQ = matchMedia('(max-width: 860px)');
+const coarse = matchMedia('(pointer: coarse)').matches;
+
+/* =====================================================================
+   Specimens: default configs (what the editor shows) + herbarium labels
+   ===================================================================== */
+const SPECIMENS = {
+  peony: { no: '01', latin: 'Paeonia suffruticosa', zh: '牡丹', family: 'Paeoniaceae · 芍药科', accent: '#ff5c8a' },
+  rose: { no: '02', latin: 'Rosa rugosa', zh: '玫瑰', family: 'Rosaceae · 蔷薇科', accent: '#ff3b5f' },
+  lotus: { no: '03', latin: 'Nelumbo nucifera', zh: '荷花', family: 'Nelumbonaceae · 莲科', accent: '#ff8ab4' },
+  dandelion: { no: '04', latin: 'Taraxacum officinale', zh: '蒲公英', family: 'Asteraceae · 菊科', accent: '#d9e4ff' },
+};
+const PRESETS = {
+  peony: {
+    flower: 'peony', seed: 7,
+    bloom: { petals: [5, 6, 8, 9, 10, 12, 13, 14], radius: 1.2, openness: 0.85, ruffle: 0.7, cup: 0.5 },
+    palette: { base: '#b0125a', petal: '#ff4f86', tip: '#fff0f5', core: '#ffcf5a', sepal: '#57c26a', stem: '#e0304a', leaf: '#eef4ff' },
+    stem: { length: 0.95, bend: 0.1, thickness: 0.035 },
+    leaves: { count: 2, length: 0.6, height: 0.2, angle: 15 },
+    fiber: { fuzz: 0.5 },
+  },
+  rose: {
+    flower: 'rose', seed: 11,
+    bloom: { petals: 36, radius: 1.15, openness: 0.9, reflex: 1.3, cup: 1.0, ruffle: 0.3 },
+    palette: { base: '#4a0314', petal: '#d0103c', tip: '#ff7b98', sepal: '#3c8a49', stem: '#2f6e3b', leaf: '#3a9a50', thorn: '#b04a30' },
+    stem: { length: 1.05, bend: 0.08, thickness: 0.03 },
+    leaves: { count: 2, length: 0.44, height: 0.36 },
+    fiber: { fuzz: 0.35 },
+  },
+  lotus: {
+    flower: 'lotus', seed: 3,
+    bloom: { petals: [6, 8, 10], radius: 1.0, openness: 0.8, cup: 1.1 },
+    palette: { base: '#fff3e8', petal: '#ffc4d9', tip: '#ff4d8d', pod: '#cde46a', stamen: '#ffc93d', stem: '#4c9a58', leaf: '#2b8d6b', water: '#86ccff' },
+    stem: { length: 1.22, bend: 0.05, thickness: 0.03 },
+    leaves: { size: 0.72, bud: true },
+    fiber: { fuzz: 0.12 },
+  },
+  dandelion: {
+    flower: 'dandelion', seed: 5,
+    bloom: { seeds: 220, radius: 0.44, spread: 0.9, pappus: 0.42, drifting: 9 },
+    palette: { seed: '#f2f5ff', achene: '#b98b4e', pappus: '#eef3ff', core: '#d8c49a', stem: '#9cc77e', leaf: '#5e9e48' },
+    stem: { length: 1.36, bend: 0.16, thickness: 0.016 },
+    leaves: { count: 5, length: 0.75 },
+    fiber: { fuzz: 0.3 },
+  },
+};
+
+/* =====================================================================
+   GEN — shape generator. Self-contained so it also runs inside a Worker.
+   Every shape is written as fibers ("strands") of K particles; the GPU
+   draws each strand as points plus the hairline segments between them.
+   ===================================================================== */
+function GEN() {
+  const K = 16, TAU = Math.PI * 2, GA = Math.PI * (3 - Math.sqrt(5));
+  const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const sstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+  const num = (v, d, lo, hi) => clamp(typeof v === 'number' && isFinite(v) ? v : d, lo, hi);
+  const mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+  const scale = (a, s) => [a[0] * s, a[1] * s, a[2] * s];
+  const norm = (v) => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l]; };
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const WHITE = [1, 1, 1];
+  function hex(v, d) {
+    let s = typeof v === 'string' ? v.trim().replace(/^#/, '') : '';
+    if (!/^([0-9a-f]{3}|[0-9a-f]{6})$/i.test(s)) s = d.replace(/^#/, '');
+    if (s.length === 3) s = s[0] + s[0] + s[1] + s[1] + s[2] + s[2];
+    const n = parseInt(s, 16);
+    const f = (c) => { c /= 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+    return [f((n >> 16) & 255), f((n >> 8) & 255), f(n & 255)];
+  }
+  function rng(seed) {
+    let a = seed >>> 0;
+    return () => { a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  }
+  function alloc(S, w) {
+    const sum = w.reduce((a, x) => a + Math.max(0, x), 0);
+    if (sum <= 0) return w.map(() => 0);
+    const out = w.map((x) => Math.floor((S * Math.max(0, x)) / sum));
+    let rem = S - out.reduce((a, x) => a + x, 0);
+    for (let i = 0; rem > 0; i = (i + 1) % w.length) if (w[i] > 0) { out[i]++; rem--; }
+    return out;
+  }
+
+  class Builder {
+    constructor(N, seed) {
+      this.S = (N / K) | 0; this.s = 0;
+      this.P = new Float32Array(N * 4); // xyz home, w flex
+      this.C = new Float32Array(N * 4); // rgb (linear), a size
+      this.A = new Float32Array(N * 4); // x fiber weight, y drift
+      const r = rng(seed); this.r = r;
+      this.g = () => (r() + r() + r() - 1.5) * 1.15;
+      this.focus = [0, 0, 0];
+    }
+    pt(k, x, y, z, c, gain, size, flex, line, drift) {
+      if (this.s >= this.S) return;
+      const i = (this.s * K + k) * 4;
+      this.P[i] = x; this.P[i + 1] = y; this.P[i + 2] = z; this.P[i + 3] = flex;
+      this.C[i] = c[0] * gain; this.C[i + 1] = c[1] * gain; this.C[i + 2] = c[2] * gain; this.C[i + 3] = size;
+      this.A[i] = line; this.A[i + 1] = drift || 0;
+    }
+    end() { this.s++; }
+  }
+
+  const tmp = [0, 0, 0];
+  function place(o, x, y, z, out) {
+    if (o.tz) { const c = Math.cos(o.tz), s = Math.sin(o.tz), nx = x * c - y * s; y = x * s + y * c; x = nx; }
+    if (o.tx) { const c = Math.cos(o.tx), s = Math.sin(o.tx), ny = y * c - z * s; z = y * s + z * c; y = ny; }
+    out[0] = o.cx + x; out[1] = o.cy + y; out[2] = o.cz + z;
+  }
+  const curve = (p0, p1, bx, bz) => (t) => [lerp(p0[0], p1[0], t) + bx * Math.sin(Math.PI * t), lerp(p0[1], p1[1], t), lerp(p0[2], p1[2], t) + bz * Math.sin(Math.PI * t)];
+
+  // One fiber across a petal, at lateral position v in [-1, 1]. The centerline is
+  // integrated in the meridian plane (radius, height) while its angle bends outward.
+  function petalFiber(b, o, v) {
+    const r = b.r, g = b.g, av = Math.abs(v);
+    let lenS = o.shape === 2 ? 1 - Math.pow(av, 1.8) * 0.9 : o.shape === 1 ? Math.sqrt(Math.max(0.02, 1 - av * av * 0.62)) : 1 - av * av * 0.2;
+    lenS *= 1 + o.ruf * 0.08 * Math.sin(v * o.rufF + o.ph) + (r() - 0.5) * 0.08 * o.fuzz;
+    lenS = Math.max(0.05, lenS);
+    const ds = (o.len * lenS) / (K - 1);
+    let rad = o.r0, y = o.y0;
+    const bright = 0.45 + r() * 0.8;
+    const stray = r() < 0.06 * o.fuzz ? 3 : 1;
+    for (let k = 0; k < K; k++) {
+      const uu = (k / (K - 1)) * lenS;
+      const th = o.th0 + (o.th1 - o.th0) * Math.pow(uu, o.bend);
+      if (k) { rad += Math.sin(th) * ds; y += Math.cos(th) * ds; }
+      const wp = o.shape === 2 ? Math.pow(Math.sin(Math.PI * Math.min(1, 0.05 + uu * 0.95)), 0.8)
+        : o.shape === 1 ? Math.pow(Math.sin(Math.PI * (0.08 + 0.8 * uu)), 0.6)
+        : Math.pow(Math.sin(Math.PI * (0.07 + 0.62 * uu)), 0.55);
+      const w = o.wid * wp, lat = v * w;
+      let off = o.cup * w * v * v - o.reflex * uu * uu * uu * w * (0.35 + v * v);
+      off += o.ruf * w * 0.32 * Math.sin(v * o.rufF + o.ph + uu * 5) * uu * uu;
+      const nr = -Math.cos(th), ny = Math.sin(th);
+      const rr = Math.max(0.004, rad + nr * off), yy = y + ny * off;
+      const phi = o.az + o.twist * uu + (o.wrap * lat) / Math.max(rr, 0.07);
+      const fl = (1 - o.wrap) * lat, cs = Math.cos(phi), sn = Math.sin(phi);
+      const j = o.fuzz * (0.0025 + 0.02 * uu * uu * uu * stray);
+      place(o, rr * cs - fl * sn + g() * j, yy + g() * j, rr * sn + fl * cs + g() * j, tmp);
+      // rim light: margins and tips catch the light, so overlapping petals keep their outlines
+      const rim = sstep(0.7, 1, av) * (o.rim ?? 0.5), tipF = Math.pow(sstep(0.68, 1, uu), 1.6);
+      let c = mix(o.cBase, o.cMid, sstep(0, 0.45, uu));
+      c = mix(c, o.cTip, o.tipAmt * Math.max(tipF, rim * 0.8));
+      b.pt(k, tmp[0], tmp[1], tmp[2], c, bright * o.gain * (0.72 + rim * 1.3 + tipF * 0.4) * (0.15 + 0.85 * sstep(0, 0.45, uu)), o.size * (0.6 + 0.8 * r()) * (k === K - 1 ? 1.4 : 1), uu * uu, o.line, o.drift);
+    }
+    b.end();
+  }
+  function petalGroup(b, descs, count) {
+    if (!descs.length) return;
+    const n = alloc(count, descs.map((d) => d.len * d.wid));
+    descs.forEach((d, i) => { const m = n[i]; for (let j = 0; j < m; j++) petalFiber(b, d, -1 + (2 * (j + 0.5 + (b.r() - 0.5) * 0.9)) / m); });
+  }
+  function stemFibers(b, o, count) {
+    const r = b.r;
+    for (let i = 0; i < count; i++) {
+      const a = r() * TAU, rr = o.thick * Math.sqrt(0.2 + 0.8 * r()), span = o.span || 0.32, t0 = r() * (1 - span), tw = (r() - 0.5) * 1.2, bright = 0.7 + r() * 0.5;
+      for (let k = 0; k < K; k++) {
+        const t = t0 + (span * k) / (K - 1), p = o.at(t), taper = 1 - 0.35 * t, ang = a + tw * t;
+        b.pt(k, p[0] + Math.cos(ang) * rr * taper, p[1], p[2] + Math.sin(ang) * rr * taper, mix(o.cBot, o.cTop, t), bright * o.gain, o.size || 0.8, t * 0.15, o.line ?? 0.65, o.drift);
+      }
+      b.end();
+    }
+  }
+  function stamens(b, o, count) {
+    const r = b.r;
+    for (let i = 0; i < count; i++) {
+      const az = r() * TAU, rho = lerp(o.r0, o.r1, Math.sqrt(r())), th = lerp(o.th0, o.th1, r()), L = o.len * (0.7 + 0.6 * r()), ds = L / (K - 1), bright = 0.75 + r() * 0.45;
+      let rad = rho, y = 0;
+      for (let k = 0; k < K; k++) {
+        const t = k / (K - 1), a = th + o.curl * t;
+        if (k) { rad += Math.sin(a) * ds; y += Math.cos(a) * ds; }
+        const anther = t > 0.8;
+        place(o, Math.cos(az) * rad, y, Math.sin(az) * rad, tmp);
+        b.pt(k, tmp[0], tmp[1], tmp[2], anther ? o.cTip : mix(o.cBase, o.cMid, t), bright * o.gain * (anther ? 1.3 : 1), (anther ? 1.3 : 0.6) * (o.size || 1), t, o.line ?? 0.5, 0);
+      }
+      b.end();
+    }
+  }
+  // Leaf blade: a midrib plus side veins that run from the midrib toward the margin and tip.
+  function leafStrands(b, o, count) {
+    const r = b.r, g = b.g, f = norm(o.f);
+    let sd = cross([0, 1, 0], f);
+    if (Math.hypot(sd[0], sd[1], sd[2]) < 1e-3) sd = [1, 0, 0];
+    sd = norm(sd);
+    const n = cross(f, sd), lobes = o.lobes || 0, teeth = o.teeth || 0;
+    const W = (s) => {
+      s = clamp(s, 0, 1);
+      let w = o.wid * Math.pow(Math.sin(Math.PI * Math.pow(s, o.sp || 0.7)), 0.8);
+      if (teeth) { const q = (s * lobes) % 1; w *= 1 - teeth * 0.55 * q * q; }
+      return w;
+    };
+    const P = (s, lat, out) => {
+      const L = o.len, h = -o.droop * s * s * L + o.fold * Math.abs(lat) + (o.wave || 0) * Math.sin(s * 11 + lat * 25) * 0.025;
+      for (let i = 0; i < 3; i++) out[i] = o.A[i] + f[i] * s * L + sd[i] * lat + n[i] * h;
+    };
+    const nMid = Math.max(1, Math.round(count * 0.1));
+    for (let i = 0; i < count; i++) {
+      const bright = 0.72 + r() * 0.5;
+      if (i < nMid) {
+        const s0 = (i / nMid) * 0.72 + r() * 0.04;
+        for (let k = 0; k < K; k++) {
+          const s = s0 + (0.3 * k) / (K - 1);
+          P(s, g() * 0.004, tmp);
+          b.pt(k, tmp[0], tmp[1], tmp[2], o.cVein, bright * o.gain * 1.15, 0.85, s, o.line, o.drift);
+        }
+      } else {
+        const s0 = r() * 0.93, side = r() < 0.5 ? -1 : 1, reach = (0.16 + 0.12 * r()) * (1 - s0 * 0.4);
+        for (let k = 0; k < K; k++) {
+          const t = k / (K - 1), s = s0 + reach * Math.pow(t, 1.3);
+          P(s, side * t * W(s) * (0.94 + 0.06 * r()), tmp);
+          const c = mix(mix(o.cVein, o.cMid, sstep(0, 0.35, t)), o.cEdge, sstep(0.75, 1, t) * 0.6);
+          b.pt(k, tmp[0] + g() * 0.003, tmp[1] + g() * 0.003, tmp[2] + g() * 0.003, c, bright * o.gain, 0.75 * (0.7 + 0.6 * r()), s * s, o.line, o.drift);
+        }
+      }
+      b.end();
+    }
+  }
+  function ripples(b, o, count) {
+    const r = b.r, g = b.g, wsum = o.radii.reduce((a, x) => a + x, 0);
+    for (let i = 0; i < count; i++) {
+      let pick = r() * wsum, ring = 0;
+      while (ring < o.radii.length - 1 && pick > o.radii[ring]) pick -= o.radii[ring++];
+      const rho = o.radii[ring] * (1 + g() * 0.012), a0 = r() * TAU, da = 0.32 / rho, fade = 1 - (ring / o.radii.length) * 0.6;
+      for (let k = 0; k < K; k++) {
+        const a = a0 + (da * k) / (K - 1);
+        b.pt(k, o.cx + Math.cos(a) * rho, o.cy + g() * 0.002, o.cz + Math.sin(a) * rho, o.c, o.gain * fade * (0.7 + 0.5 * r()), 0.6, 0.1, 0.6, 0);
+      }
+      b.end();
+    }
+  }
+
+  /* ---------------- 牡丹 Paeonia ---------------- */
+  function peony(b, cfg) {
+    const r = b.r, bl = cfg.bloom || {}, pal = cfg.palette || {}, st = cfg.stem || {}, lv = cfg.leaves || {}, fb = cfg.fiber || {};
+    const R = num(bl.radius, 1, 0.3, 1.5), open = num(bl.openness, 0.85, 0, 1.4), ruf = num(bl.ruffle, 0.7, 0, 2), cupK = num(bl.cup, 0.5, -1, 1.5), fuzz = num(fb.fuzz, 0.5, 0, 2);
+    const layers = (Array.isArray(bl.petals) ? bl.petals : [5, 6, 8, 9, 10, 12, 13, 14]).slice(0, 16).map((x) => Math.round(num(x, 6, 0, 48)));
+    const C = { base: hex(pal.base, '#b0125a'), petal: hex(pal.petal, '#ff4f86'), tip: hex(pal.tip, '#fff0f5'), core: hex(pal.core, '#ffcf5a'), sepal: hex(pal.sepal, '#57c26a'), stem: hex(pal.stem, '#e0304a'), leaf: hex(pal.leaf, '#eef4ff') };
+    const sLen = num(st.length, 1.1, 0.2, 1.7), bend = num(st.bend, 0.1, -0.6, 0.6), thick = num(st.thickness, 0.035, 0.005, 0.12);
+    const y0 = -1.32, top = [bend * 0.4, y0 + sLen, 0], stemAt = curve([0, y0, 0], top, bend * 0.25, 0);
+    b.focus = [top[0], top[1] + 0.4 * R, 0];
+    const descs = [], L = layers.length;
+    layers.forEach((n, i) => {
+      const t = L > 1 ? i / (L - 1) : 1;
+      for (let j = 0; j < n; j++) {
+        const th0 = lerp(0.04, 1.05, Math.pow(t, 1.4)) * open + (r() - 0.5) * 0.16;
+        descs.push({
+          cx: top[0], cy: top[1], cz: 0, az: ((j + r() * 0.5) / n) * TAU + i * 2.39,
+          r0: lerp(0.015, 0.09, t) * R, y0: lerp(0.22, 0.0, t) * R,
+          len: lerp(0.46, 0.74, Math.pow(t, 0.8)) * R * (0.85 + r() * 0.3), wid: lerp(0.2, 0.42, t) * R * (0.85 + r() * 0.3),
+          th0, th1: th0 + lerp(0.85, 1.0, t) * open * (0.75 + r() * 0.5), bend: lerp(1.25, 1.6, t), rim: 0.6,
+          cup: cupK * lerp(1.6, 0.55, t), reflex: lerp(0, 0.3, t * t), ruf: ruf * lerp(1.6, 0.8, t), rufF: 5 + r() * 7, ph: r() * TAU,
+          wrap: lerp(0.8, 0.35, t), twist: (r() - 0.5) * 0.5, shape: 0, fuzz,
+          cBase: mix(C.base, C.petal, 0.15 + t * 0.4), cMid: mix(C.base, C.petal, lerp(0.6, 1, t)), cTip: C.tip, tipAmt: lerp(0.45, 1, t), gain: lerp(0.4, 1, Math.pow(t, 0.8)), size: 1, line: 0.5,
+        });
+      }
+    });
+    const sep = [];
+    for (let j = 0; j < 7; j++) {
+      const th0 = 1.45 + (r() - 0.5) * 0.2;
+      sep.push({ cx: top[0], cy: top[1] - 0.02, cz: 0, az: (j / 7) * TAU + 0.4, r0: 0.05 * R, y0: 0, len: 0.5 * R * (0.85 + r() * 0.3), wid: 0.26 * R, th0: th0 - 0.12, th1: th0 + 0.7, bend: 1.4, cup: 0.45, reflex: 0.1, ruf: 0.3, rufF: 7, ph: r() * TAU, wrap: 0.3, twist: 0, shape: 1, fuzz: fuzz * 0.7, cBase: scale(C.sepal, 0.45), cMid: C.sepal, cTip: mix(C.sepal, WHITE, 0.45), tipAmt: 0.8, gain: 1, size: 0.95, line: 0.5 });
+    }
+    const nLeaves = Math.round(num(lv.count, 2, 0, 8)), leafLen = num(lv.length, 0.55, 0.1, 1.2), leafAt = num(lv.height, 0.2, 0, 1), yaw0 = (num(lv.angle, 15, -180, 180) * Math.PI) / 180;
+    const leaves = [];
+    for (let i = 0; i < nLeaves; i++) {
+      const pair = Math.floor(i / 2), yaw = yaw0 + (i % 2) * Math.PI + pair * 1.3, pitch = 0.42 - pair * 0.08;
+      leaves.push({ A: stemAt(clamp(leafAt + pair * 0.16, 0, 1)), f: [Math.cos(yaw) * Math.cos(pitch), Math.sin(pitch), Math.sin(yaw) * Math.cos(pitch)], len: leafLen * (0.9 + r() * 0.2), wid: leafLen * 0.36, droop: 0.35, fold: 0.35, sp: 0.6, wave: 0.6, cMid: C.leaf, cEdge: mix(C.leaf, WHITE, 0.5), cVein: mix(C.leaf, C.stem, 0.25), gain: 0.6, line: 0.5 });
+    }
+    const loosePetal = (extra) => Object.assign({ az: 0, r0: 0, y0: 0, len: 0.44 * R, wid: 0.3 * R, bend: 1.3, cup: 0.4, reflex: 0, ruf: 0.6, rufF: 8, ph: r() * TAU, wrap: 0, twist: 0.3, shape: 0, fuzz, cBase: C.base, cMid: C.petal, cTip: C.tip, tipAmt: 0.9, gain: 0.85, size: 1, line: 0.5 }, extra);
+    const loose = [
+      loosePetal({ cx: 0.95, cy: 0.45, cz: 0.7, az: 2.4, th0: 1.1, th1: 2.1, drift: 1, tz: 0.6, tx: -0.4 }),
+      loosePetal({ cx: -0.78, cy: -1.435, cz: 0.6, az: 0.9, th0: 1.6, th1: 1.38, cup: 0.3, gain: 0.7 }),
+    ];
+    const [nPet, nCore, nSep, nStem, nLeaf, nLoose] = alloc(b.S, [0.62, 0.035, 0.1, 0.065, nLeaves ? 0.13 : 0, 0.04]);
+    petalGroup(b, descs, nPet);
+    stamens(b, { cx: top[0], cy: top[1] + 0.07 * R, cz: 0, r0: 0, r1: 0.07 * R, th0: 0.1, th1: 0.9, curl: 0.4, len: 0.2 * R, cBase: mix(C.sepal, C.core, 0.5), cMid: C.core, cTip: mix(C.core, WHITE, 0.4), gain: 0.9, line: 0.4 }, nCore);
+    petalGroup(b, sep, nSep);
+    stemFibers(b, { at: stemAt, thick, cBot: scale(C.stem, 0.5), cTop: C.stem, gain: 0.85, span: 0.3 }, nStem);
+    const nl = alloc(nLeaf, leaves.map(() => 1));
+    leaves.forEach((l, i) => leafStrands(b, l, nl[i]));
+    petalGroup(b, loose, nLoose);
+  }
+
+  /* ---------------- 玫瑰 Rosa ---------------- */
+  function rose(b, cfg) {
+    const r = b.r, bl = cfg.bloom || {}, pal = cfg.palette || {}, st = cfg.stem || {}, lv = cfg.leaves || {}, fb = cfg.fiber || {};
+    const R = num(bl.radius, 0.82, 0.3, 1.4), open = num(bl.openness, 0.9, 0, 1.5), n = Math.round(num(bl.petals, 36, 3, 90)), reflexK = num(bl.reflex, 1, 0, 2.5), cupK = num(bl.cup, 1, -1, 2), ruf = num(bl.ruffle, 0.3, 0, 2), fuzz = num(fb.fuzz, 0.35, 0, 2);
+    const C = { base: hex(pal.base, '#4a0314'), petal: hex(pal.petal, '#d0103c'), tip: hex(pal.tip, '#ff7b98'), sepal: hex(pal.sepal, '#3c8a49'), stem: hex(pal.stem, '#2f6e3b'), leaf: hex(pal.leaf, '#3a9a50'), thorn: hex(pal.thorn, '#b04a30') };
+    const sLen = num(st.length, 1.15, 0.2, 1.7), bend = num(st.bend, 0.08, -0.6, 0.6), thick = num(st.thickness, 0.03, 0.005, 0.1);
+    const y0 = -1.32, top = [bend * 0.4, y0 + sLen, 0], stemAt = curve([0, y0, 0], top, bend * 0.25, 0);
+    b.focus = [top[0], top[1] + 0.25 * R, 0];
+    const descs = [];
+    for (let i = 0; i < n; i++) {
+      const t = n > 1 ? i / (n - 1) : 1, th0 = open * lerp(0.02, 0.85, Math.pow(t, 1.9));
+      descs.push({
+        cx: top[0], cy: top[1], cz: 0, az: i * 2.39996 + r() * 0.1,
+        r0: R * lerp(0.008, 0.07, t), y0: R * lerp(0.12, 0.0, t),
+        len: R * lerp(0.36, 0.58, Math.pow(t, 0.75)) * (0.92 + r() * 0.16), wid: R * lerp(0.15, 0.6, Math.pow(t, 0.6)),
+        th0, th1: th0 + open * lerp(0.04, 0.7, Math.pow(t, 1.6)), bend: 2.2,
+        cup: cupK * lerp(1.0, 0.45, t), reflex: reflexK * lerp(0, 1.25, Math.pow(t, 2.2)), ruf: ruf * lerp(0.4, 1, t), rufF: 4 + r() * 4, ph: r() * TAU,
+        wrap: lerp(0.97, 0.5, t), twist: 0, shape: 1, fuzz,
+        cBase: C.base, cMid: mix(C.base, C.petal, lerp(0.45, 1, t)), cTip: C.tip, tipAmt: lerp(0.25, 0.85, t), gain: lerp(0.16, 1.3, Math.pow(t, 0.6)), size: 1, line: 0.5, rim: lerp(1.1, 0.8, t),
+      });
+    }
+    const sep = [];
+    for (let j = 0; j < 5; j++) sep.push({ cx: top[0], cy: top[1] - 0.01, cz: 0, az: (j / 5) * TAU + 0.3, r0: 0.04 * R, y0: 0, len: 0.38 * R, wid: 0.09 * R, th0: 1.75, th1: 2.9, bend: 1.2, cup: 0.3, reflex: 0, ruf: 0.1, rufF: 6, ph: r() * TAU, wrap: 0.1, twist: 0.25, shape: 2, fuzz: fuzz * 0.6, cBase: scale(C.sepal, 0.5), cMid: C.sepal, cTip: mix(C.sepal, WHITE, 0.3), tipAmt: 0.6, gain: 0.75, size: 0.9, line: 0.55 });
+    const nLeaves = Math.round(num(lv.count, 2, 0, 6)), lsz = num(lv.length, 0.42, 0.1, 1), lAt = num(lv.height, 0.4, 0.05, 0.9);
+    const leafSets = [];
+    for (let i = 0; i < nLeaves; i++) {
+      const yaw = 0.6 + i * 2.5, pitch = 0.35, f = [Math.cos(yaw) * Math.cos(pitch), Math.sin(pitch), Math.sin(yaw) * Math.cos(pitch)];
+      const A = stemAt(clamp(lAt + i * 0.22, 0, 0.95)), sd = norm(cross([0, 1, 0], f)), Lr = lsz;
+      const lf = [];
+      const leaflet = (s, ang, size) => {
+        const at = [A[0] + f[0] * s * Lr, A[1] + f[1] * s * Lr - 0.04 * s * s, A[2] + f[2] * s * Lr];
+        const dir = norm([f[0] * Math.cos(ang) + sd[0] * Math.sin(ang), f[1] * Math.cos(ang) + 0.1, f[2] * Math.cos(ang) + sd[2] * Math.sin(ang)]);
+        lf.push({ A: at, f: dir, len: 0.2 * size * Lr / 0.42, wid: 0.085 * size * Lr / 0.42, droop: 0.25, fold: 0.3, sp: 0.75, teeth: 0.35, lobes: 9, wave: 0.2, cMid: C.leaf, cEdge: scale(C.leaf, 0.75), cVein: mix(C.leaf, [0.8, 1, 0.5], 0.4), gain: 0.5, line: 0.45 });
+      };
+      leaflet(0.35, 0.95, 0.85); leaflet(0.35, -0.95, 0.85); leaflet(0.68, 0.85, 0.95); leaflet(0.68, -0.85, 0.95); leaflet(1.0, 0, 1.1);
+      leafSets.push({ A, f, Lr, lf });
+    }
+    const [nPet, nSep, nStem, nThorn, nLeaf, nLoose] = alloc(b.S, [0.6, 0.06, 0.08, 0.015, nLeaves ? 0.2 : 0, 0.035]);
+    petalGroup(b, descs, nPet);
+    petalGroup(b, sep, nSep);
+    stemFibers(b, { at: stemAt, thick, cBot: scale(C.stem, 0.55), cTop: C.stem, gain: 0.75, span: 0.3 }, nStem);
+    for (let i = 0; i < nThorn; i++) {
+      const t = 0.05 + 0.8 * r(), p = stemAt(t), az = r() * TAU, d = norm([Math.cos(az), -0.55, Math.sin(az)]), len = 0.05 + r() * 0.03;
+      for (let k = 0; k < K; k++) {
+        const q = k / (K - 1);
+        b.pt(k, p[0] + Math.cos(az) * thick + d[0] * len * q, p[1] + d[1] * len * q, p[2] + Math.sin(az) * thick + d[2] * len * q, C.thorn, 0.9, 1.1 - q * 0.7, 0, 0.7, 0);
+      }
+      b.end();
+    }
+    const perSet = alloc(nLeaf, leafSets.map(() => 1));
+    leafSets.forEach((set, i) => {
+      const [nRach, nBlades] = alloc(perSet[i], [0.12, 0.88]);
+      stemFibers(b, { at: (t) => [set.A[0] + set.f[0] * t * set.Lr, set.A[1] + set.f[1] * t * set.Lr - 0.04 * t * t, set.A[2] + set.f[2] * t * set.Lr], thick: 0.008, cBot: C.stem, cTop: C.leaf, gain: 0.7, span: 0.4, size: 0.7 }, nRach);
+      const each = alloc(nBlades, set.lf.map((l) => l.len * l.wid));
+      set.lf.forEach((l, j) => leafStrands(b, l, each[j]));
+    });
+    const lp = (extra) => Object.assign({ az: 0, r0: 0, y0: 0, len: 0.4 * R, wid: 0.36 * R, th0: 1.6, th1: 1.3, bend: 1.2, cup: 0.35, reflex: 0.5, ruf: 0.3, rufF: 5, ph: r() * TAU, wrap: 0, twist: 0, shape: 1, fuzz, cBase: C.base, cMid: C.petal, cTip: C.tip, tipAmt: 0.7, gain: 0.7, size: 1, line: 0.5 }, extra);
+    petalGroup(b, [lp({ cx: 0.7, cy: -1.435, cz: -0.45, az: 2.2 }), lp({ cx: -0.35, cy: -1.435, cz: 0.75, az: 4.4, len: 0.32 * R })], nLoose);
+  }
+
+  /* ---------------- 荷花 Nelumbo ---------------- */
+  function lotus(b, cfg) {
+    const r = b.r, bl = cfg.bloom || {}, pal = cfg.palette || {}, st = cfg.stem || {}, lv = cfg.leaves || {};
+    const R = num(bl.radius, 1, 0.3, 1.5), open = num(bl.openness, 0.8, 0, 1.4), cupK = num(bl.cup, 1.1, -0.5, 2), fuzz = num((cfg.fiber || {}).fuzz, 0.12, 0, 2);
+    const layers = (Array.isArray(bl.petals) ? bl.petals : [6, 8, 10]).slice(0, 8).map((x) => Math.round(num(x, 8, 0, 30)));
+    const C = { base: hex(pal.base, '#fff3e8'), petal: hex(pal.petal, '#ffc4d9'), tip: hex(pal.tip, '#ff4d8d'), pod: hex(pal.pod, '#cde46a'), stamen: hex(pal.stamen, '#ffc93d'), stem: hex(pal.stem, '#4c9a58'), leaf: hex(pal.leaf, '#2b8d6b'), water: hex(pal.water, '#86ccff') };
+    const sLen = num(st.length, 1.22, 0.2, 1.7), bend = num(st.bend, 0.05, -0.6, 0.6), thick = num(st.thickness, 0.03, 0.005, 0.1);
+    const y0 = -1.32, top = [bend * 0.4, y0 + sLen, 0], stemAt = curve([0, y0, 0], top, bend * 0.25, 0);
+    b.focus = [top[0], top[1] + 0.22 * R, 0];
+    const descs = [], L = layers.length;
+    layers.forEach((n, i) => {
+      const t = L > 1 ? i / (L - 1) : 1;
+      for (let j = 0; j < n; j++) {
+        const th0 = open * lerp(0.3, 1.1, t) + (r() - 0.5) * 0.08;
+        descs.push({ cx: top[0], cy: top[1], cz: 0, az: ((j + 0.5 * (i % 2)) / n) * TAU + r() * 0.08, r0: R * lerp(0.1, 0.14, t), y0: R * 0.04, len: R * lerp(0.46, 0.6, t) * (0.95 + r() * 0.1), wid: R * lerp(0.19, 0.24, t), th0, th1: th0 + open * lerp(0.2, 0.42, t), bend: 1.6, cup: cupK, reflex: 0, ruf: 0.05, rufF: 5, ph: r() * TAU, wrap: 0.25, twist: 0, shape: 2, fuzz, cBase: mix(C.base, C.petal, 0.5), cMid: C.petal, cTip: C.tip, tipAmt: 1, gain: lerp(0.22, 0.46, t), size: 1, line: 0.55, rim: 0.7 });
+      }
+    });
+    const showBud = lv.bud !== false, Rl = num(lv.size, 0.72, 0, 1.2);
+    const [nPet, nPod, nSta, nStem, nLeaf, nBud, nRip] = alloc(b.S, [0.5, 0.06, 0.07, 0.05, Rl > 0 ? 0.16 : 0, showBud ? 0.07 : 0, 0.05]);
+    petalGroup(b, descs, nPet);
+    // seed pod: flat disk on an inverted cone, dotted with seeds
+    const yt = top[1] + 0.16 * R, yb = top[1] + 0.02, rp = 0.15 * R, rb = 0.06 * R;
+    const [nTop, nSide, nSeed] = alloc(nPod, [0.45, 0.35, 0.2]);
+    for (let i = 0; i < nTop; i++) {
+      const a = r() * TAU, bright = 0.7 + r() * 0.4;
+      for (let k = 0; k < K; k++) { const q = (k / (K - 1)) * (0.97 + r() * 0.03), rho = rp * q; b.pt(k, top[0] + Math.cos(a) * rho, yt + 0.012 * (1 - q * q), Math.sin(a) * rho, C.pod, 0.32 * bright, 0.7, 0, 0.4, 0); }
+      b.end();
+    }
+    for (let i = 0; i < nSide; i++) {
+      const a = r() * TAU, bright = 0.6 + r() * 0.4;
+      for (let k = 0; k < K; k++) { const q = k / (K - 1), rho = lerp(rb, rp, q); b.pt(k, top[0] + Math.cos(a) * rho, lerp(yb, yt, q), Math.sin(a) * rho, mix(scale(C.pod, 0.6), C.pod, q), 0.35 * bright, 0.7, 0, 0.4, 0); }
+      b.end();
+    }
+    for (let i = 0; i < nSeed; i++) {
+      const sIdx = i % 19, rho = rp * 0.78 * Math.sqrt((sIdx + 0.5) / 19), a = sIdx * GA, sx = top[0] + Math.cos(a) * rho, sz = Math.sin(a) * rho;
+      for (let k = 0; k < K; k++) { const q = (k / K) * TAU, rr = 0.013 * (0.6 + 0.4 * r()); b.pt(k, sx + Math.cos(q) * rr, yt + 0.016, sz + Math.sin(q) * rr, mix(C.pod, C.stamen, 0.6), 0.7, 0.8, 0, 0.5, 0); }
+      b.end();
+    }
+    stamens(b, { cx: top[0], cy: top[1] + 0.05 * R, cz: 0, r0: rp * 0.95, r1: rp * 1.3, th0: 0.35, th1: 1.1, curl: 0.5, len: 0.15 * R, cBase: mix(C.base, C.stamen, 0.4), cMid: C.stamen, cTip: mix(C.stamen, WHITE, 0.45), gain: 0.26, line: 0.5 }, nSta);
+    stemFibers(b, { at: stemAt, thick, cBot: scale(C.stem, 0.55), cTop: C.stem, gain: 0.75, span: 0.3 }, nStem);
+    if (nLeaf) {
+      // peltate leaf: a shallow bowl with radial veins and a wavy rim
+      const Lc = [0.62, -0.98, -0.52], [nPetiole, nVein, nFill] = alloc(nLeaf, [0.08, 0.62, 0.3]);
+      stemFibers(b, { at: curve([0.5, -1.32, -0.42], [Lc[0], Lc[1] - 0.02, Lc[2]], 0.03, 0), thick: 0.016, cBot: scale(C.stem, 0.5), cTop: C.stem, gain: 0.7, span: 0.45 }, nPetiole);
+      // the pad is a shallow bowl, tipped up toward the viewer like a raised lotus leaf
+      const tilt = 0.42, ct = Math.cos(tilt), st2 = Math.sin(tilt);
+      const leafPt = (rho, a, k, c, gain, size, flex, line) => {
+        const lx = Math.cos(a) * rho, lz = Math.sin(a) * rho, ly = 0.16 * Rl * Math.pow(rho / Rl, 2) + 0.03 * Math.sin(a * 7 + rho * 6) * Math.pow(rho / Rl, 3);
+        b.pt(k, Lc[0] + lx, Lc[1] + ly * ct + lz * st2, Lc[2] + lz * ct - ly * st2, c, gain, size, flex, line, 0);
+      };
+      for (let i = 0; i < nVein; i++) {
+        const a = r() * TAU, edge = Rl * (1 + 0.03 * Math.sin(a * 9)), q0 = r() * 0.55, bright = 0.7 + r() * 0.5;
+        for (let k = 0; k < K; k++) { const q = q0 + ((1 - q0) * k) / (K - 1), rho = 0.02 + edge * q; leafPt(rho, a, k, mix(mix(C.leaf, WHITE, 0.25), C.leaf, sstep(0, 0.3, q)), 0.6 * bright, 0.75, q * q * 0.6, 0.5); }
+        b.end();
+      }
+      for (let i = 0; i < nFill; i++) {
+        const rho = Rl * Math.sqrt(0.05 + 0.95 * r()), a0 = r() * TAU, da = 0.22 / rho, bright = 0.6 + r() * 0.4;
+        for (let k = 0; k < K; k++) { const a = a0 + (da * k) / (K - 1); leafPt(rho, a, k, scale(C.leaf, 0.8), 0.5 * bright, 0.7, (rho / Rl) * 0.5, 0.35); }
+        b.end();
+      }
+    }
+    if (nBud) {
+      const Bt = [-0.78, -0.36, 0.42], [nBs, nBp] = alloc(nBud, [0.25, 0.75]);
+      stemFibers(b, { at: curve([-0.3, -1.32, 0.28], Bt, -0.06, 0), thick: 0.02, cBot: scale(C.stem, 0.5), cTop: C.stem, gain: 0.7, span: 0.35 }, nBs);
+      const bud = [];
+      for (let j = 0; j < 8; j++) bud.push({ cx: Bt[0], cy: Bt[1], cz: Bt[2], tz: 0.42, az: (j / 8) * TAU + r() * 0.2, r0: 0.03, y0: 0, len: 0.34 * (0.9 + r() * 0.15), wid: 0.17, th0: 0.12 + (j % 2) * 0.08, th1: 0.02, bend: 1.4, cup: 1.3, reflex: 0, ruf: 0.04, rufF: 5, ph: 0, wrap: 0.55, twist: 0, shape: 2, fuzz: 0.25, cBase: mix(C.base, C.stem, 0.25), cMid: C.petal, cTip: C.tip, tipAmt: 1, gain: 0.32, size: 1, line: 0.55 });
+      petalGroup(b, bud, nBp);
+    }
+    ripples(b, { cx: 0, cy: -1.32, cz: 0, radii: [0.22, 0.42, 0.66, 0.92, 1.2], c: C.water, gain: 0.32 }, nRip);
+  }
+
+  /* ---------------- 蒲公英 Taraxacum ---------------- */
+  function dandelion(b, cfg) {
+    const r = b.r, g = b.g, bl = cfg.bloom || {}, pal = cfg.palette || {}, st = cfg.stem || {}, lv = cfg.leaves || {};
+    const Rs = num(bl.radius, 0.44, 0.15, 0.9), spread = num(bl.spread, 0.9, 0.1, 1.6), pl = num(bl.pappus, 0.42, 0.1, 1);
+    let M = Math.round(num(bl.seeds, 220, 12, 900)), D = Math.round(num(bl.drifting, 9, 0, 40));
+    const C = { seed: hex(pal.seed, '#f2f5ff'), achene: hex(pal.achene, '#b98b4e'), pappus: hex(pal.pappus, '#eef3ff'), core: hex(pal.core, '#d8c49a'), stem: hex(pal.stem, '#9cc77e'), leaf: hex(pal.leaf, '#5e9e48') };
+    const sLen = num(st.length, 1.36, 0.2, 1.75), bend = num(st.bend, 0.16, -0.6, 0.6), thick = num(st.thickness, 0.016, 0.004, 0.06);
+    const y0 = -1.32, top = [bend * 0.4, y0 + sLen, 0], stemAt = curve([0, y0, 0], top, bend * 0.25, 0), H = [top[0], top[1] + 0.03, 0];
+    b.focus = H.slice();
+    const nLeaves = Math.round(num(lv.count, 5, 0, 12));
+    const [nStem, nLeaf, nCore, nSeeds] = alloc(b.S, [0.04, nLeaves ? 0.12 : 0, 0.01, 0.83]);
+    M = Math.min(M, Math.floor(nSeeds / 4)); D = Math.min(D, Math.floor(nSeeds / 40));
+    stemFibers(b, { at: stemAt, thick, cBot: scale(C.stem, 0.6), cTop: C.stem, gain: 0.6, span: 0.3, size: 0.7 }, nStem);
+    const ln = alloc(nLeaf, Array.from({ length: nLeaves }, () => 1)), lenL = num(lv.length, 0.75, 0.1, 1.4);
+    for (let i = 0; i < nLeaves; i++) {
+      const yaw = (i / nLeaves) * TAU + r() * 0.5, pitch = 0.18 + r() * 0.22;
+      leafStrands(b, { A: [Math.cos(yaw) * 0.03, y0, Math.sin(yaw) * 0.03], f: [Math.cos(yaw) * Math.cos(pitch), Math.sin(pitch), Math.sin(yaw) * Math.cos(pitch)], len: lenL * (0.75 + r() * 0.35), wid: lenL * 0.16, droop: 0.55, fold: 0.25, sp: 1.6, teeth: 0.9, lobes: 6, wave: 0.4, cMid: C.leaf, cEdge: scale(C.leaf, 0.8), cVein: mix(C.leaf, WHITE, 0.35), gain: 0.5, line: 0.45 }, ln[i]);
+    }
+    for (let i = 0; i < nCore; i++) {
+      const d = norm([g(), Math.abs(g()) + 0.2, g()]);
+      for (let k = 0; k < K; k++) { const q = 0.03 + 0.03 * (k / (K - 1)); b.pt(k, H[0] + d[0] * q, H[1] + d[1] * q - 0.01, H[2] + d[2] * q, C.core, 0.8, 0.8, 0, 0.3, 0); }
+      b.end();
+    }
+    // seed directions: Fibonacci sphere with the stem-side cap removed
+    const dirs = [], T = Math.round(M / 0.86) + 2;
+    for (let i = 0; i < T && dirs.length < M; i++) {
+      const y = 1 - (2 * (i + 0.5)) / T;
+      if (y < -0.72) continue;
+      const rho = Math.sqrt(1 - y * y), a = i * GA;
+      dirs.push(norm([Math.cos(a) * rho + g() * 0.04, y + g() * 0.04, Math.sin(a) * rho + g() * 0.04]));
+    }
+    const seeds = dirs.map((d) => ({ d, tip: [H[0] + d[0] * Rs * 0.93, H[1] + d[1] * Rs * 0.93, H[2] + d[2] * Rs * 0.93], base: [H[0] + d[0] * 0.05, H[1] + d[1] * 0.05, H[2] + d[2] * 0.05], drift: 0, sc: 1 }));
+    for (let i = 0; i < D; i++) {
+      const d = norm([0.3 + (r() - 0.5) * 0.7, 1, (r() - 0.5) * 0.7]);
+      const Q = [clamp(H[0] + 0.45 + i * 0.11 + r() * 0.12, -1.45, 1.45), clamp(H[1] + 0.15 + i * 0.1 + (r() - 0.5) * 0.3, -1.2, 1.45), clamp((r() - 0.5) * 1.4, -1.4, 1.4)];
+      seeds.push({ d, tip: Q, base: [Q[0] - d[0] * Rs * 0.62, Q[1] - d[1] * Rs * 0.62, Q[2] - d[2] * Rs * 0.62], drift: 1, sc: 0.9 });
+    }
+    const all = seeds.length, P = Math.max(1, Math.floor((nSeeds - all) / all));
+    let extra = nSeeds - all - P * all;
+    seeds.forEach((sd) => {
+      const bright = 0.75 + r() * 0.4, bendV = [g() * 0.02, g() * 0.02, g() * 0.02];
+      for (let k = 0; k < K; k++) {
+        const t = k / (K - 1), s = Math.sin(Math.PI * t);
+        const c = t < 0.28 ? C.achene : C.seed;
+        b.pt(k, lerp(sd.base[0], sd.tip[0], t) + bendV[0] * s, lerp(sd.base[1], sd.tip[1], t) + bendV[1] * s, lerp(sd.base[2], sd.tip[2], t) + bendV[2] * s, c, (t < 0.28 ? 0.9 : 0.42) * bright, t < 0.28 ? 0.9 : 0.5, t * 0.3, 0.8, sd.drift);
+      }
+      b.end();
+      let u1 = cross(sd.d, [0.31, 0.95, 0.07]);
+      if (Math.hypot(u1[0], u1[1], u1[2]) < 1e-3) u1 = cross(sd.d, [1, 0, 0]);
+      u1 = norm(u1);
+      const u2 = cross(sd.d, u1), count = P + (extra-- > 0 ? 1 : 0);
+      for (let j = 0; j < count; j++) {
+        const beta = ((j + r()) / count) * TAU, alpha = spread * (0.75 + 0.25 * r()), lp = Rs * pl * (0.85 + 0.3 * r()) * sd.sc, cb = Math.cos(beta), sb = Math.sin(beta), fb = 0.65 + r() * 0.45;
+        for (let k = 0; k < K; k++) {
+          const t = k / (K - 1), a = alpha * (0.35 + 0.65 * Math.pow(t, 0.7)), ca = Math.cos(a) * lp * t, sa = Math.sin(a) * lp * t;
+          b.pt(k, sd.tip[0] + sd.d[0] * ca + (u1[0] * cb + u2[0] * sb) * sa, sd.tip[1] + sd.d[1] * ca + (u1[1] * cb + u2[1] * sb) * sa, sd.tip[2] + sd.d[2] * ca + (u1[2] * cb + u2[2] * sb) * sa, C.pappus, 0.3 * fb * (t > 0.9 ? 1.6 : 1), t > 0.9 ? 0.75 : 0.5, 0.3 + t * 0.7, 0.85, sd.drift);
+        }
+        b.end();
+      }
+    });
+  }
+
+  const KINDS = { peony, rose, lotus, dandelion };
+  function build(cfg, N) {
+    const t0 = Date.now();
+    cfg = cfg && typeof cfg === 'object' ? cfg : {};
+    const kind = KINDS[cfg.flower] ? cfg.flower : 'peony';
+    const b = new Builder(N, Math.round(num(cfg.seed, 7, 0, 1e9)));
+    KINDS[kind](b, cfg);
+    return { P: b.P, C: b.C, A: b.A, kind, strands: Math.min(b.s, b.S), focus: b.focus, ms: Date.now() - t0 };
+  }
+  return { build, K, kinds: Object.keys(KINDS) };
+}
+
+/* =====================================================================
+   Shaders
+   ===================================================================== */
+const FLOW_FRAG = /* glsl */ `// flow.frag — velocity pass of the GPGPU simulation.
+// One texel = one particle. Springs pull particles home,
+// a divergence-free flow keeps them alive, the pointer stirs them.
+uniform float uTime;
+uniform float uDelta;
+uniform float uMorphStart;   // when the current shape was assigned
+uniform float uStagger;      // length of the growth wave
+uniform float uSpring;
+uniform float uDamping;
+uniform float uTurbulence;
+uniform float uWind;
+uniform float uKick;         // decaying stir after a burst
+uniform vec3  uRayOrigin;    // pointer ray, world space
+uniform vec3  uRayDir;
+uniform float uMouse;
+uniform float uMouseRadius;
+uniform vec4  uBurst;        // xyz origin, w impulse
+uniform sampler2D uTargetPos;  // xyz home, w flex
+uniform sampler2D uTargetAux;  // x fiber weight, y drift
+
+float hash12(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+
+// Arnold–Beltrami–Childress flow: divergence-free,
+// so particles swirl without clumping or thinning out.
+vec3 abc(vec3 p, float t) {
+  return vec3(sin(p.z + t) + cos(p.y - t * 0.7),
+              sin(p.x - t * 0.8) + cos(p.z + t * 0.5),
+              sin(p.y + t * 0.6) + cos(p.x - t));
+}
+vec3 flow(vec3 p, float t) {
+  return abc(p * 1.6, t) + 0.5 * abc(p * 3.7 + 11.0, t * 1.7);
+}
+
+void main() {
+  vec2 uv = gl_FragCoord.xy / resolution.xy;
+  vec3 pos = texture2D(texturePosition, uv).xyz;
+  vec3 vel = texture2D(textureVelocity, uv).xyz;
+  vec4 home = texture2D(uTargetPos, uv);
+  vec4 aux = texture2D(uTargetAux, uv);
+
+  // fibers are runs of 16 texels: one hash per strand keeps a fiber together in flight
+  float id = floor(gl_FragCoord.y) * resolution.x + floor(gl_FragCoord.x);
+  float hs = hash12(vec2(floor(id / 16.0), 7.0));
+  float hp = hash12(gl_FragCoord.xy);
+
+  // wind: the whole plant leans from the ground up, loose tips flutter
+  vec3 target = home.xyz;
+  float h = clamp((target.y + 1.35) / 2.6, 0.0, 1.0);
+  target.x += uWind * h * h * (sin(uTime * 0.55 + target.y * 0.9) * 0.05 + sin(uTime * 1.31) * 0.015);
+  target.z += uWind * h * h * cos(uTime * 0.43 + target.y * 1.1) * 0.03;
+  target += uWind * home.w * 0.012 * vec3(sin(uTime * 2.3 + hp * 40.0), sin(uTime * 1.9 + hp * 27.0), cos(uTime * 2.7 + hp * 33.0));
+  // drifting seeds and fallen petals ride a slow, smooth current
+  target += aux.y * vec3(sin(uTime * 0.31 + home.y * 2.1) * 0.12,
+                         sin(uTime * 0.47 + home.x * 1.7) * 0.09,
+                         cos(uTime * 0.37 + home.z * 2.3) * 0.12);
+
+  // growth wave: strands switch on from the ground up
+  float delay = (home.y + 1.4) * 0.42 * uStagger + hs * 0.55 * uStagger;
+  float act = smoothstep(0.0, 1.0, (uTime - uMorphStart - delay) / 0.9);
+
+  vec3 toHome = target - pos;
+  float d = length(toHome);
+  vec3 acc = toHome * uSpring * (0.75 + 0.5 * hs) * (0.12 + 0.88 * act);
+
+  float turb = uTurbulence * (0.04 + home.w * 0.25) + (1.0 - act) * 1.8 + min(d, 1.2) * 0.5 * act + uKick;
+  acc += flow(pos, uTime * 0.35) * turb;
+  acc += (1.0 - act) * vec3(-pos.z, 0.25, pos.x) * 1.4;   // vortex while waiting to land
+
+  // pointer: push away from the view ray and spin around it
+  vec3 ap = pos - uRayOrigin;
+  vec3 off = ap - uRayDir * dot(ap, uRayDir);
+  float r = length(off);
+  float f = uMouse * smoothstep(uMouseRadius, 0.0, r);
+  acc += (off / (r + 1e-4)) * f * 10.0 + cross(uRayDir, off) * f * 18.0;
+
+  // click shockwave
+  vec3 bd = pos - uBurst.xyz;
+  float bl = length(bd);
+  vel += (bd / (bl + 1e-4)) * uBurst.w * exp(-bl * bl * 2.5) * (0.5 + hp);
+
+  vel += acc * uDelta;
+  vel *= exp(-uDelta * uDamping * (0.45 + 0.55 * act));
+  gl_FragColor = vec4(vel, 1.0);
+}
+`;
+
+const MOVE_FRAG = /* glsl */ `uniform float uDelta;
+void main() {
+  vec2 uv = gl_FragCoord.xy / resolution.xy;
+  vec4 p = texture2D(texturePosition, uv);
+  p.xyz += texture2D(textureVelocity, uv).xyz * uDelta;
+  gl_FragColor = p;
+}
+`;
+
+// particles keep their old colour in flight and take the new one as they land
+const TINT_FRAG = /* glsl */ `uniform float uDelta;
+uniform sampler2D uTargetCol;
+uniform sampler2D uTargetPos;
+void main() {
+  vec2 uv = gl_FragCoord.xy / resolution.xy;
+  vec4 c = texture2D(textureColor, uv);
+  vec4 t = texture2D(uTargetCol, uv);
+  float d = distance(texture2D(texturePosition, uv).xyz, texture2D(uTargetPos, uv).xyz);
+  float rate = 0.6 + 5.0 * smoothstep(0.5, 0.02, d);
+  gl_FragColor = mix(c, t, 1.0 - exp(-uDelta * rate));
+}
+`;
+
+const POINT_VERT = /* glsl */ `// particle.vert — draws each simulated texel as a soft sprite
+uniform sampler2D tPosition;
+uniform sampler2D tVelocity;
+uniform sampler2D tColor;
+uniform float uSize;       // world-space diameter
+uniform float uResY;       // drawing-buffer height, px
+uniform float uFocus;      // focal distance
+uniform float uAperture;   // depth-of-field strength
+uniform float uTime;
+varying vec3 vColor;
+varying float vAlpha;
+
+void main() {
+  vec2 ref = position.xy;        // texel address in the simulation
+  float rnd = position.z;
+  vec4 c = texture2D(tColor, ref);
+  if (c.a < 0.001) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); gl_PointSize = 0.0; return; }
+  vec3 p = texture2D(tPosition, ref).xyz;
+  float speed = length(texture2D(tVelocity, ref).xyz);
+
+  vec4 mv = modelViewMatrix * vec4(p, 1.0);
+  gl_Position = projectionMatrix * mv;
+  float depth = -mv.z;
+  float pxPerUnit = projectionMatrix[1][1] * uResY * 0.5 / depth;
+
+  float core = uSize * c.a * (0.6 + 0.8 * rnd) * pxPerUnit;      // in-focus diameter
+  float blur = abs(depth - uFocus) * uAperture * pxPerUnit * 0.03; // circle of confusion
+  float size = max(core + blur, 1.0);
+  gl_PointSize = size;
+
+  // constant energy: a sprite that grows (defocus) or drops below a pixel dims to match
+  vAlpha = (core * core) / (size * size) * mix(1.0, 0.3, smoothstep(uFocus - 0.5, uFocus + 1.0, depth));
+  float twinkle = step(0.992, rnd) * pow(0.5 + 0.5 * sin(uTime * 2.5 + rnd * 800.0), 8.0) * 3.0;
+  vAlpha *= 1.0 + twinkle;
+  // particles in flight run hot
+  vColor = c.rgb * (1.0 + speed * 0.6) + vec3(0.3, 0.25, 0.4) * speed * speed * 0.08;
+}
+`;
+const POINT_FRAG = /* glsl */ `uniform float uGain;
+varying vec3 vColor;
+varying float vAlpha;
+void main() {
+  vec2 d = gl_PointCoord * 2.0 - 1.0;
+  float r2 = dot(d, d);
+  if (r2 > 1.0) discard;
+  float a = exp(-r2 * 4.0) - 0.018;
+  gl_FragColor = vec4(vColor * a * vAlpha * uGain, 1.0);
+}
+`;
+const LINE_VERT = /* glsl */ `uniform sampler2D tPosition;
+uniform sampler2D tColor;
+uniform sampler2D tAux;
+uniform float uOpacity;
+uniform float uFocus;
+uniform float uAperture;
+uniform float uMaxLen;
+attribute vec2 ref2;
+varying vec3 vColor;
+varying float vAlpha;
+void main() {
+  vec3 p = texture2D(tPosition, position.xy).xyz;
+  vec3 q = texture2D(tPosition, ref2).xyz;
+  vec4 c = texture2D(tColor, position.xy);
+  float w = texture2D(tAux, position.xy).x;
+  vec4 mv = modelViewMatrix * vec4(p, 1.0);
+  gl_Position = projectionMatrix * mv;
+  float blur = abs(-mv.z - uFocus) * uAperture;
+  float far = mix(1.0, 0.3, smoothstep(uFocus - 0.5, uFocus + 1.0, -mv.z));
+  // a segment fades out as its two particles drift apart, so strands dissolve in flight
+  vAlpha = far * w * uOpacity * smoothstep(uMaxLen, uMaxLen * 0.35, distance(p, q)) / (1.0 + blur * blur * 3.0);
+  vColor = c.rgb;
+}
+`;
+const LINE_FRAG = /* glsl */ `uniform float uGain;
+varying vec3 vColor;
+varying float vAlpha;
+void main() { gl_FragColor = vec4(vColor * vAlpha * uGain, 1.0); }
+`;
+const DUST_VERT = /* glsl */ `uniform float uTime;
+uniform float uResY;
+uniform float uFocus;
+uniform float uAperture;
+uniform float uSpan;
+uniform vec3 uTint;
+attribute vec4 aSeed;
+varying vec3 vColor;
+varying float vAlpha;
+void main() {
+  vec3 p = position;
+  float span = aSeed.w > 0.02 ? 9.0 : uSpan;
+  float y = mod(p.y + span * 0.5 + uTime * (0.012 + aSeed.x * 0.03), span) - span * 0.5;
+  p.y = y;
+  p.x += sin(uTime * 0.11 + aSeed.y * 6.283) * 0.18;
+  p.z += cos(uTime * 0.09 + aSeed.z * 6.283) * 0.18;
+  vec4 mv = modelViewMatrix * vec4(p, 1.0);
+  gl_Position = projectionMatrix * mv;
+  float depth = -mv.z;
+  float ppu = projectionMatrix[1][1] * uResY * 0.5 / depth;
+  float core = aSeed.w * ppu;
+  float size = max(core + abs(depth - uFocus) * uAperture * ppu * 0.03, 1.0);
+  gl_PointSize = size;
+  float edge = smoothstep(span * 0.5, span * 0.5 - 0.4, abs(y));
+  vAlpha = (core * core) / (size * size) * edge * (0.55 + 0.45 * sin(uTime * 0.7 + aSeed.y * 40.0));
+  vColor = mix(vec3(0.55, 0.65, 1.0), uTint, aSeed.z);
+}
+`;
+const LensShader = {
+  uniforms: {
+    tDiffuse: { value: null }, uTime: { value: 0 }, uCenter: { value: new THREE.Vector2(0.5, 0.5) },
+    uAspect: { value: 1 }, uCA: { value: 0.0016 }, uVignette: { value: 0.55 }, uGrain: { value: 0.028 },
+  },
+  vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: /* glsl */ `uniform sampler2D tDiffuse;
+uniform float uTime, uCA, uVignette, uGrain, uAspect;
+uniform vec2 uCenter;
+varying vec2 vUv;
+float hash(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+void main() {
+  vec2 d = vUv - uCenter;
+  float r = length(d * vec2(uAspect, 1.0));
+  vec2 off = d * uCA * (1.0 + r * 2.0);
+  vec3 c = vec3(texture2D(tDiffuse, vUv + off).r, texture2D(tDiffuse, vUv).g, texture2D(tDiffuse, vUv - off).b);
+  c *= mix(1.0, smoothstep(1.35, 0.2, r), uVignette);
+  c += (hash(gl_FragCoord.xy + fract(uTime * 7.31) * 513.0) - 0.5) * uGrain;
+  gl_FragColor = vec4(c, 1.0);
+}`,
+};
+
+/* =====================================================================
+   Editor: highlighting, live JSON, Alt-drag number scrubbing
+   ===================================================================== */
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+function hlJSON(src) {
+  const re = /("(?:\\.|[^"\\\n])*")(\s*:)?|(-?\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b)|\b(true|false|null)\b|([{}\[\],:])|(\/\/[^\n]*)/g;
+  let out = '', last = 0, m;
+  while ((m = re.exec(src))) {
+    out += esc(src.slice(last, m.index));
+    if (m[1]) {
+      if (m[2]) out += `<span class="t-key">${esc(m[1])}</span><span class="t-punc">${esc(m[2])}</span>`;
+      else {
+        const hx = /^"#([0-9a-f]{3}|[0-9a-f]{6})"$/i.exec(m[1]);
+        out += hx ? `<span class="t-str t-color" style="--sw:#${hx[1]}">${esc(m[1])}</span>` : `<span class="t-str">${esc(m[1])}</span>`;
+      }
+    } else if (m[3]) out += `<span class="t-num">${m[3]}</span>`;
+    else if (m[4]) out += `<span class="t-bool">${m[4]}</span>`;
+    else if (m[5]) out += `<span class="t-punc">${esc(m[5])}</span>`;
+    else out += `<span class="t-com">${esc(m[6])}</span>`;
+    last = re.lastIndex;
+  }
+  return out + esc(src.slice(last));
+}
+const GL_KW = new Set('uniform varying attribute void return if else for const in out discard precision highp'.split(' '));
+const GL_TY = new Set('float int bool vec2 vec3 vec4 mat3 mat4 sampler2D'.split(' '));
+const GL_FN = new Set('sin cos mix smoothstep step clamp length normalize dot cross fract floor exp pow abs min max texture2D distance sqrt'.split(' '));
+function hlGLSL(src) {
+  const re = /(\/\/[^\n]*)|(\b\d+\.\d*(?:e[+-]?\d+)?|\.\d+|\b\d+(?:e[+-]?\d+)?\b)|([A-Za-z_]\w*)/g;
+  let out = '', last = 0, m;
+  while ((m = re.exec(src))) {
+    out += esc(src.slice(last, m.index));
+    if (m[1]) out += `<span class="t-com">${esc(m[1])}</span>`;
+    else if (m[2]) out += `<span class="t-num">${m[2]}</span>`;
+    else {
+      const w = m[3];
+      const cls = GL_KW.has(w) || w.startsWith('gl_') ? 't-kw' : GL_TY.has(w) ? 't-type' : GL_FN.has(w) ? 't-fn' : /^(u|t)[A-Z]|^texture[A-Z]/.test(w) ? 't-uni' : '';
+      out += cls ? `<span class="${cls}">${w}</span>` : w;
+    }
+    last = re.lastIndex;
+  }
+  return out + esc(src.slice(last));
+}
+function fmt(v, ind = '') {
+  if (Array.isArray(v)) return v.every((x) => x === null || typeof x !== 'object') ? '[' + v.map((x) => JSON.stringify(x)).join(', ') + ']' : '[\n' + v.map((x) => ind + '  ' + fmt(x, ind + '  ')).join(',\n') + '\n' + ind + ']';
+  if (v && typeof v === 'object') return '{\n' + Object.keys(v).map((k) => `${ind}  ${JSON.stringify(k)}: ${fmt(v[k], ind + '  ')}`).join(',\n') + '\n' + ind + '}';
+  return JSON.stringify(v);
+}
+const presetText = (key) => `// ${SPECIMENS[key].latin} · ${SPECIMENS[key].zh}\n// 实时配置：修改即重新生长。按住 Alt 拖动数字可连续微调。\n${fmt(PRESETS[key])}\n`;
+const stripComments = (s) => s.replace(/("(?:\\.|[^"\\])*")|\/\/[^\n]*/g, (m, str) => str || ' '.repeat(m.length));
+
+/* =====================================================================
+   Renderer, scene, post-processing
+   ===================================================================== */
+const canvas = $('#gl');
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+} catch (e) {
+  $('#fail').hidden = false;
+  throw e;
+}
+const FLOAT_RT = renderer.extensions.has('EXT_color_buffer_float');
+renderer.setClearColor(0x040507, 1);
+renderer.toneMapping = THREE.NeutralToneMapping;
+renderer.toneMappingExposure = 1.0;
+renderer.info.autoReset = false;
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(30, 1, 0.05, 80);
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true;
+controls.dampingFactor = 0.06;
+controls.enablePan = false;
+controls.minDistance = 2.6;
+controls.maxDistance = 16;
+controls.rotateSpeed = 0.6;
+controls.zoomSpeed = 0.7;
+controls.target.set(0, -0.05, 0);
+controls.autoRotate = !reduceMotion;
+controls.autoRotateSpeed = 0.6;
+const FINAL_SPH = new THREE.Spherical(7.6, THREE.MathUtils.degToRad(74), THREE.MathUtils.degToRad(38));
+const START_SPH = new THREE.Spherical(11.5, THREE.MathUtils.degToRad(62), THREE.MathUtils.degToRad(-25));
+camera.position.setFromSpherical(reduceMotion ? FINAL_SPH : START_SPH).add(controls.target);
+camera.lookAt(controls.target);
+
+const HDR_RT = FLOAT_RT || renderer.extensions.has('EXT_color_buffer_half_float');
+// MSAA only pays off on 1x screens; on high-DPI it would cost hundreds of MB for little gain
+const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: HDR_RT ? THREE.HalfFloatType : THREE.UnsignedByteType, samples: (devicePixelRatio || 1) < 1.5 ? 4 : 0 }));
+composer.addPass(new RenderPass(scene, camera));
+const bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.7, 0.34, 0.22);
+composer.addPass(bloomPass);
+composer.addPass(new OutputPass());
+const lensPass = new ShaderPass(LensShader);
+composer.addPass(lensPass);
+
+/* ---------- the specimen case: wireframe box, floor, halo, dust ---------- */
+const HALF = 1.45;
+const deco = new THREE.Group();
+scene.add(deco);
+{
+  const boxMat = new THREE.LineBasicMaterial({ color: 0xc9d1e0, transparent: true, opacity: 0.14, depthWrite: false });
+  deco.add(new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(HALF * 2, HALF * 2, HALF * 2)), boxMat));
+  const pts = [], L = 0.2;
+  for (const x of [-1, 1]) for (const y of [-1, 1]) for (const z of [-1, 1]) {
+    const c = [x * HALF, y * HALF, z * HALF];
+    pts.push(...c, c[0] - x * L, c[1], c[2], ...c, c[0], c[1] - y * L, c[2], ...c, c[0], c[1], c[2] - z * L);
+  }
+  for (let i = -3; i <= 3; i++) {
+    const t = (i / 4) * HALF;
+    for (const z of [-1, 1]) pts.push(t, -HALF, z * HALF, t, -HALF, z * HALF - z * 0.05);
+    for (const x of [-1, 1]) pts.push(x * HALF, -HALF, t, x * HALF - x * 0.05, -HALF, t);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+  deco.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0xe6ebf5, transparent: true, opacity: 0.42, depthWrite: false })));
+  const grid = new THREE.GridHelper(HALF * 2, 16, 0x8090a8, 0x8090a8);
+  grid.position.y = -HALF;
+  grid.material.transparent = true; grid.material.opacity = 0.045; grid.material.depthWrite = false;
+  deco.add(grid);
+}
+function radialTexture(stops) {
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const x = c.getContext('2d'), gr = x.createRadialGradient(128, 128, 0, 128, 128, 128);
+  stops.forEach(([o, a]) => gr.addColorStop(o, `rgba(255,255,255,${a})`));
+  x.fillStyle = gr; x.fillRect(0, 0, 256, 256);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+const glowTex = radialTexture([[0, 1], [0.25, 0.45], [0.6, 0.1], [1, 0]]);
+const accentColor = new THREE.Color(SPECIMENS.peony.accent);
+const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: accentColor, transparent: true, opacity: 0.018, blending: THREE.AdditiveBlending, depthWrite: false }));
+halo.scale.set(4.4, 4.4, 1);
+scene.add(halo);
+const pool = new THREE.Mesh(new THREE.PlaneGeometry(HALF * 2, HALF * 2), new THREE.MeshBasicMaterial({ map: glowTex, color: accentColor, transparent: true, opacity: 0.05, blending: THREE.AdditiveBlending, depthWrite: false }));
+pool.rotation.x = -Math.PI / 2; pool.position.y = -HALF + 0.002;
+scene.add(pool);
+
+const dust = (() => {
+  const n = 2600, pos = new Float32Array(n * 3), seed = new Float32Array(n * 4);
+  for (let i = 0; i < n; i++) {
+    const big = i < 70;
+    if (big) { const a = Math.random() * Math.PI * 2, r = 2.4 + Math.random() * 4; pos.set([Math.cos(a) * r, (Math.random() - 0.5) * 9, Math.sin(a) * r], i * 3); }
+    else pos.set([(Math.random() - 0.5) * HALF * 1.94, (Math.random() - 0.5) * HALF * 2, (Math.random() - 0.5) * HALF * 1.94], i * 3);
+    seed.set([Math.random(), Math.random(), Math.random(), big ? 0.025 + Math.random() * 0.035 : 0.004 + Math.random() * 0.007], i * 4);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('aSeed', new THREE.BufferAttribute(seed, 4));
+  const m = new THREE.ShaderMaterial({
+    uniforms: { uTime: { value: 0 }, uSpan: { value: HALF * 2 }, uResY: { value: 1 }, uFocus: { value: 8 }, uAperture: { value: 0.8 }, uTint: { value: accentColor.clone() }, uGain: { value: 0.22 } },
+    vertexShader: DUST_VERT, fragmentShader: POINT_FRAG, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  });
+  const p = new THREE.Points(g, m); p.frustumCulled = false; scene.add(p);
+  return m;
+})();
+
+/* =====================================================================
+   Herbarium — GPGPU particle system (position / velocity / colour)
+   ===================================================================== */
+const K = 16;
+class Herbarium {
+  constructor(size) {
+    this.size = size; this.N = size * size; this.S = this.N / K; this.ready = false; this.strands = 0;
+    const gpu = (this.gpu = new GPUComputationRenderer(size, size, renderer));
+    if (!FLOAT_RT) gpu.setDataType(THREE.HalfFloatType);
+    this.p0 = gpu.createTexture(); this.v0 = gpu.createTexture(); this.c0 = gpu.createTexture();
+    this.seedGalaxy();
+    this.vel = gpu.addVariable('textureVelocity', FLOW_FRAG, this.v0);
+    this.pos = gpu.addVariable('texturePosition', MOVE_FRAG, this.p0);
+    this.col = gpu.addVariable('textureColor', TINT_FRAG, this.c0);
+    gpu.setVariableDependencies(this.vel, [this.pos, this.vel]);
+    gpu.setVariableDependencies(this.pos, [this.pos, this.vel]);
+    gpu.setVariableDependencies(this.col, [this.col, this.pos]);
+    const mk = () => { const t = new THREE.DataTexture(new Float32Array(this.N * 4), size, size, THREE.RGBAFormat, THREE.FloatType); t.needsUpdate = true; return t; };
+    this.tPos = mk(); this.tCol = mk(); this.tAux = mk();
+    const U = (v) => ({ value: v });
+    Object.assign(this.vel.material.uniforms, {
+      uTime: U(0), uDelta: U(0), uMorphStart: U(0), uStagger: U(1), uSpring: U(0), uDamping: U(3.6), uTurbulence: U(1), uWind: U(1), uKick: U(0),
+      uRayOrigin: U(new THREE.Vector3(0, 0, 50)), uRayDir: U(new THREE.Vector3(0, 0, -1)), uMouse: U(0), uMouseRadius: U(0.3),
+      uBurst: U(new THREE.Vector4()), uTargetPos: U(this.tPos), uTargetAux: U(this.tAux),
+    });
+    this.pos.material.uniforms.uDelta = U(0);
+    Object.assign(this.col.material.uniforms, { uDelta: U(0), uTargetCol: U(this.tCol), uTargetPos: U(this.tPos) });
+    const err = gpu.init();
+    if (err) throw new Error(err);
+
+    // points: position attribute = (u, v, random) — the texel each vertex reads
+    const ref = new Float32Array(this.N * 3);
+    for (let i = 0; i < this.N; i++) ref.set([((i % size) + 0.5) / size, (Math.floor(i / size) + 0.5) / size, Math.random()], i * 3);
+    const pg = new THREE.BufferGeometry();
+    pg.setAttribute('position', new THREE.BufferAttribute(ref, 3));
+    this.pointMat = new THREE.ShaderMaterial({
+      uniforms: { tPosition: U(null), tVelocity: U(null), tColor: U(null), uSize: U(0.0055), uResY: U(1), uFocus: U(8), uAperture: U(0.8), uTime: U(0), uGain: U(0.55) },
+      vertexShader: POINT_VERT, fragmentShader: POINT_FRAG, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    });
+    this.points = new THREE.Points(pg, this.pointMat);
+    this.points.frustumCulled = false;
+
+    // fibers: one segment between consecutive particles of a strand
+    const segs = this.S * (K - 1), la = new Float32Array(segs * 6), lb = new Float32Array(segs * 4);
+    let o = 0;
+    const uv = (i) => [((i % size) + 0.5) / size, (Math.floor(i / size) + 0.5) / size];
+    for (let s = 0; s < this.S; s++) for (let k = 0; k < K - 1; k++) {
+      const a = uv(s * K + k), b = uv(s * K + k + 1);
+      la.set([a[0], a[1], 0, b[0], b[1], 0], o * 6); lb.set([...b, ...a], o * 4); o++;
+    }
+    const lg = new THREE.BufferGeometry();
+    lg.setAttribute('position', new THREE.BufferAttribute(la, 3));
+    lg.setAttribute('ref2', new THREE.BufferAttribute(lb, 2));
+    this.lineMat = new THREE.ShaderMaterial({
+      uniforms: { tPosition: U(null), tColor: U(null), tAux: U(this.tAux), uOpacity: U(0.55), uFocus: U(8), uAperture: U(0.8), uMaxLen: U(0.16), uGain: U(0.55) },
+      vertexShader: LINE_VERT, fragmentShader: LINE_FRAG, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    });
+    this.lines = new THREE.LineSegments(lg, this.lineMat);
+    this.lines.frustumCulled = false;
+    scene.add(this.lines, this.points);
+    this.bind();
+  }
+  // a three-armed galaxy of cold particles that collapses into the specimen
+  seedGalaxy() {
+    const P = this.p0.image.data, V = this.v0.image.data, C = this.c0.image.data;
+    for (let i = 0; i < this.N; i++) {
+      const arm = i % 3, r = 1.3 + Math.pow(Math.random(), 0.9) * 3.4;
+      const a = (arm / 3) * Math.PI * 2 + r * 0.95 + (Math.random() - 0.5) * 0.7;
+      const x = Math.cos(a) * r, z = Math.sin(a) * r, y = (Math.random() - 0.5) * 0.35 * Math.sqrt(r) - 0.4;
+      P.set([x, y, z, 1], i * 4);
+      V.set([-z * 0.18, 0, x * 0.18, 1], i * 4);
+      const w = Math.random();
+      C.set([0.45 + w * 0.4, 0.55 + w * 0.35, 1.3, 0.85], i * 4);
+    }
+  }
+  bind() {
+    const gpu = this.gpu;
+    this.pointMat.uniforms.tPosition.value = gpu.getCurrentRenderTarget(this.pos).texture;
+    this.pointMat.uniforms.tVelocity.value = gpu.getCurrentRenderTarget(this.vel).texture;
+    this.pointMat.uniforms.tColor.value = gpu.getCurrentRenderTarget(this.col).texture;
+    this.lineMat.uniforms.tPosition.value = this.pointMat.uniforms.tPosition.value;
+    this.lineMat.uniforms.tColor.value = this.pointMat.uniforms.tColor.value;
+  }
+  setTargets(res) {
+    this.tPos.image.data = res.P; this.tCol.image.data = res.C; this.tAux.image.data = res.A;
+    this.tPos.needsUpdate = this.tCol.needsUpdate = this.tAux.needsUpdate = true;
+    this.strands = res.strands; this.ready = true;
+  }
+  morph(t, stagger) { const u = this.vel.material.uniforms; u.uMorphStart.value = t; u.uStagger.value = stagger; }
+  regrow(t) {
+    for (const [v, tex] of [[this.pos, this.p0], [this.vel, this.v0], [this.col, this.c0]]) {
+      this.gpu.renderTexture(tex, v.renderTargets[0]); this.gpu.renderTexture(tex, v.renderTargets[1]);
+    }
+    this.morph(t, 1);
+  }
+  settle() {
+    for (const [v, tex] of [[this.pos, this.tPos], [this.col, this.tCol]]) { this.gpu.renderTexture(tex, v.renderTargets[0]); this.gpu.renderTexture(tex, v.renderTargets[1]); }
+    this.morph(-100, 1);
+  }
+  step(dt, t) {
+    const u = this.vel.material.uniforms;
+    u.uTime.value = t; u.uDelta.value = dt; u.uSpring.value = this.ready ? 9 : 0;
+    this.pos.material.uniforms.uDelta.value = dt;
+    this.col.material.uniforms.uDelta.value = this.ready ? dt : 0;
+    this.gpu.compute();
+    u.uBurst.value.w = 0;
+    this.bind();
+  }
+  dispose() {
+    scene.remove(this.points, this.lines);
+    this.points.geometry.dispose(); this.lines.geometry.dispose(); this.pointMat.dispose(); this.lineMat.dispose();
+    this.tPos.dispose(); this.tCol.dispose(); this.tAux.dispose(); this.gpu.dispose();
+  }
+}
+
+/* =====================================================================
+   Shape builds (worker when available)
+   ===================================================================== */
+const GEN_LOCAL = GEN();
+let worker = null;
+try {
+  const src = `const G = (${GEN.toString()})();\nonmessage = (e) => { const { id, cfg, N } = e.data; const r = G.build(cfg, N); postMessage({ id, N, ...r }, [r.P.buffer, r.C.buffer, r.A.buffer]); };`;
+  worker = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
+  worker.onmessage = (e) => onBuilt(e.data);
+  worker.onerror = () => { worker = null; if (state.lastReq) runLocal(state.lastReq); };
+} catch { worker = null; }
+function runLocal(req) { setTimeout(() => onBuilt({ id: req.id, N: req.N, ...GEN_LOCAL.build(req.cfg, req.N) }), 0); }
+
+/* =====================================================================
+   App state
+   ===================================================================== */
+const DEFAULTS = { bloom: 0.7, gain: 1, size: 1, fiber: 0.5, wind: 1, turb: 1, dof: 0.8, spin: 0.6 };
+const params = { ...DEFAULTS };
+const QUALITY = { low: 256, mid: 384, high: 512, ultra: 640 };
+const state = {
+  preset: 'peony', kind: 'peony', texts: {}, tab: 'json', buildId: 0, lastReq: null, dissolve: false, focus: new THREE.Vector3(0, 0.15, 0),
+  quality: coarse || narrowMQ.matches ? 'mid' : 'high', manualQuality: false, spin: !reduceMotion, simT: 0, kick: 0, downgraded: 0,
+};
+Object.keys(PRESETS).forEach((k) => (state.texts[k] = presetText(k)));
+let herb = new Herbarium(QUALITY[state.quality]);
+
+function requestBuild(cfg, dissolve) {
+  const req = { id: ++state.buildId, cfg, N: herb.N };
+  state.lastReq = req;
+  if (dissolve) state.dissolve = true;
+  setStatus('busy', '生长中…');
+  if (worker) {
+    worker.postMessage(req);
+    setTimeout(() => { if (worker && state.lastReq === req && req.id > (state.appliedId || 0)) { worker = null; runLocal(req); } }, 4000);
+  } else runLocal(req);
+}
+function onBuilt(res) {
+  if (res.id !== state.buildId || res.N !== herb.N) return;
+  state.appliedId = res.id;
+  const first = !herb.ready;
+  herb.setTargets(res);
+  state.focus.fromArray(res.focus);
+  if (first) {
+    if (reduceMotion) herb.settle(); else herb.morph(state.simT, 1);
+  } else if (state.dissolve) {
+    herb.morph(state.simT, 0.8);
+    burst(state.focus, 1.4);
+  }
+  state.dissolve = false;
+  setKind(res.kind);
+  setStatus('ok', `已生长 · ${herb.N.toLocaleString('en-US')} 粒子 · ${res.strands.toLocaleString('en-US')} 纤维 · ${res.ms} ms`);
+  $('#sp-count').textContent = `${herb.N.toLocaleString('en-US')} particles · ${res.strands.toLocaleString('en-US')} fibers`;
+}
+
+/* ---------- editor wiring ---------- */
+const ta = $('#src'), hl = $('#hl'), gutter = $('#gutter'), lineHl = $('#line-hl'), editorEl = $('#editor');
+const SOURCES = { json: null, flow: FLOW_FRAG, point: POINT_VERT };
+const PAD_TOP = 14, PAD_LEFT = 14;
+let LH = 20, CW = 7.5, errLine = 0, typing = null, applyTimer = 0;
+function measure() {
+  const cs = getComputedStyle(ta);
+  LH = parseFloat(cs.lineHeight) || 20;
+  const c = document.createElement('canvas').getContext('2d');
+  c.font = `${cs.fontSize} ${cs.fontFamily}`;
+  CW = c.measureText('0000000000').width / 10;
+}
+function paint(text) {
+  hl.innerHTML = (state.tab === 'json' ? hlJSON(text) : hlGLSL(text)) + (typing ? '<span class="type-caret"></span>' : '') + '\n';
+  const n = text.split('\n').length, cur = curLine();
+  let g = '';
+  for (let i = 1; i <= n; i++) g += `<div${i === errLine ? ' class="err"' : i === cur ? ' class="cur"' : ''}>${i}</div>`;
+  gutter.innerHTML = g;
+  syncScroll();
+}
+function curLine() { return ta.value.slice(0, ta.selectionStart).split('\n').length; }
+function syncScroll() {
+  hl.style.transform = `translate(${-ta.scrollLeft}px, ${-ta.scrollTop}px)`;
+  gutter.style.transform = `translateY(${-ta.scrollTop}px)`;
+  const ln = errLine || curLine();
+  lineHl.style.transform = `translateY(${PAD_TOP + (ln - 1) * LH - ta.scrollTop}px)`;
+  editorEl.classList.toggle('err-line', !!errLine);
+}
+function caretInfo() {
+  const before = ta.value.slice(0, ta.selectionStart).split('\n');
+  $('#st-pos').textContent = `Ln ${before.length}, Col ${before[before.length - 1].length + 1}`;
+}
+function setStatus(kind, msg) {
+  $('#st-dot').className = 'dot ' + kind;
+  $('#st-msg').textContent = msg;
+  $('#ed-status').classList.toggle('err', kind === 'err');
+}
+function showTab(tab) {
+  if (typing) finishTyping();
+  state.tab = tab;
+  $$('.tab').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
+  const ro = tab !== 'json';
+  ta.readOnly = ro;
+  $('#ed-ro').hidden = !ro;
+  $('#btn-reset').hidden = ro;
+  ta.value = ro ? SOURCES[tab] : state.texts[state.preset];
+  ta.setAttribute('aria-label', ro ? `${tab === 'flow' ? 'flow.frag' : 'particle.vert'} 着色器源码（只读）` : '花卉配置 JSON，修改后实时重新生长');
+  $('#ed-path').innerHTML = ro ? `shaders / <b>${tab === 'flow' ? 'flow.frag' : 'particle.vert'}</b>` : `specimens / <b>${state.preset}</b> / bloom.json`;
+  errLine = 0;
+  ta.scrollTop = 0;
+  paint(ta.value);
+}
+function parseText(text) {
+  try {
+    return { cfg: JSON.parse(stripComments(text)) };
+  } catch (e) {
+    const msg = String(e.message || e);
+    let line = 0;
+    const lc = /line (\d+) column (\d+)/i.exec(msg), pos = /position (\d+)/i.exec(msg);
+    if (lc) line = +lc[1];
+    else if (pos) line = text.slice(0, +pos[1]).split('\n').length;
+    return { error: msg.replace(/^JSON\.parse: /, '').replace(/\s*\(line \d+ column \d+\)/, '').replace(/\s*in JSON at position \d+/, ''), line };
+  }
+}
+function applyText(dissolve) {
+  const text = state.texts[state.preset];
+  const { cfg, error, line } = parseText(text);
+  if (error) { errLine = line; paint(ta.value); setStatus('err', `${line ? `第 ${line} 行 · ` : ''}${error}`); return; }
+  if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) { setStatus('err', '顶层需要是一个 { } 对象'); return; }
+  if (!GEN_LOCAL.kinds.includes(cfg.flower)) { errLine = (text.split('\n').findIndex((l) => l.includes('"flower"')) + 1) || 0; paint(ta.value); setStatus('err', `"flower" 可选：${GEN_LOCAL.kinds.join(' / ')}`); return; }
+  if (errLine) { errLine = 0; paint(ta.value); }
+  if (cfg.flower !== state.kind) dissolve = true;
+  state.lastCfg = cfg;
+  requestBuild(cfg, dissolve);
+}
+ta.addEventListener('input', () => {
+  if (state.tab !== 'json') return;
+  state.texts[state.preset] = ta.value;
+  paint(ta.value); caretInfo();
+  clearTimeout(applyTimer);
+  applyTimer = setTimeout(() => applyText(false), 280);
+});
+ta.addEventListener('scroll', syncScroll);
+['keyup', 'click', 'select'].forEach((ev) => ta.addEventListener(ev, () => { caretInfo(); paint(ta.value); }));
+ta.addEventListener('keydown', (e) => {
+  if (typing) { finishTyping(); e.preventDefault(); return; }
+  if (e.key === 'Tab' && !ta.readOnly) {
+    e.preventDefault();
+    if (!document.execCommand('insertText', false, '  ')) ta.setRangeText('  ', ta.selectionStart, ta.selectionEnd, 'end');
+  }
+  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); clearTimeout(applyTimer); applyText(true); }
+});
+ta.addEventListener('pointerdown', () => { if (typing) finishTyping(); }, true);
+
+// Alt/Option + drag on a number scrubs it
+let scrub = null;
+addEventListener('keydown', (e) => { if (e.key === 'Alt') editorEl.classList.add('scrub'); });
+addEventListener('keyup', (e) => { if (e.key === 'Alt') editorEl.classList.remove('scrub'); });
+addEventListener('blur', () => editorEl.classList.remove('scrub'));
+ta.addEventListener('pointerdown', (e) => {
+  if (!e.altKey || ta.readOnly || typing) return;
+  const rect = ta.getBoundingClientRect();
+  const line = Math.floor((e.clientY - rect.top + ta.scrollTop - PAD_TOP) / LH);
+  const col = Math.floor((e.clientX - rect.left + ta.scrollLeft - PAD_LEFT) / CW);
+  const lines = ta.value.split('\n');
+  if (line < 0 || line >= lines.length) return;
+  const re = /-?\d+(?:\.\d+)?/g;
+  let m;
+  while ((m = re.exec(lines[line]))) {
+    if (col >= m.index - 1 && col <= m.index + m[0].length) {
+      const lineStart = lines.slice(0, line).join('\n').length + (line ? 1 : 0);
+      const dec = (m[0].split('.')[1] || '').length;
+      scrub = { x: e.clientX, start: lineStart + m.index, len: m[0].length, v0: parseFloat(m[0]), dec, last: 0 };
+      e.preventDefault();
+      ta.setPointerCapture(e.pointerId);
+      break;
+    }
+  }
+});
+ta.addEventListener('pointermove', (e) => {
+  if (!scrub) return;
+  const dx = e.clientX - scrub.x, step = scrub.dec ? Math.pow(10, -scrub.dec) * 0.5 : 0.25;
+  let v = scrub.v0 + dx * step;
+  const s = scrub.dec ? v.toFixed(scrub.dec) : String(Math.round(v));
+  ta.value = ta.value.slice(0, scrub.start) + s + ta.value.slice(scrub.start + scrub.len);
+  scrub.len = s.length;
+  ta.setSelectionRange(scrub.start + s.length, scrub.start + s.length);
+  state.texts[state.preset] = ta.value;
+  paint(ta.value);
+  const now = performance.now();
+  if (now - scrub.last > 70) { scrub.last = now; applyText(false); }
+});
+const endScrub = () => { if (scrub) { scrub = null; applyText(false); } };
+ta.addEventListener('pointerup', endScrub);
+ta.addEventListener('pointercancel', endScrub);
+
+function typeIntro(text) {
+  ta.readOnly = true;
+  const t0 = performance.now(), dur = Math.min(3200, 900 + text.length * 2.4);
+  typing = { text, raf: 0 };
+  const step = () => {
+    if (!typing) return;
+    const k = Math.min(1, (performance.now() - t0) / dur);
+    const n = Math.floor(text.length * (1 - Math.pow(1 - k, 1.6)));
+    ta.value = text.slice(0, n);
+    paint(ta.value);
+    ta.scrollTop = ta.scrollHeight;
+    syncScroll();
+    if (k < 1) typing.raf = requestAnimationFrame(step); else finishTyping();
+  };
+  step();
+}
+function finishTyping() {
+  if (!typing) return;
+  cancelAnimationFrame(typing.raf);
+  typing = null;
+  ta.readOnly = state.tab !== 'json';
+  ta.value = state.tab === 'json' ? state.texts[state.preset] : SOURCES[state.tab];
+  ta.scrollTop = 0;
+  paint(ta.value);
+}
+
+/* ---------- presets / specimen label ---------- */
+function setKind(kind) {
+  state.kind = kind;
+  const sp = SPECIMENS[kind];
+  $('#sp-no').textContent = `Specimen ${sp.no} / 04`;
+  $('#sp-latin').textContent = sp.latin;
+  $('#sp-zh').textContent = sp.zh;
+  $('#sp-family').textContent = sp.family;
+  document.documentElement.style.setProperty('--accent', sp.accent);
+  state.accentTarget = new THREE.Color(sp.accent);
+  $$('.presets button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.p === kind)));
+}
+function setPreset(key, { animateCode = false } = {}) {
+  if (!PRESETS[key]) return;
+  state.preset = key;
+  if (state.tab !== 'json') showTab('json');
+  $('#ed-path').innerHTML = `specimens / <b>${key}</b> / bloom.json`;
+  if (animateCode && !reduceMotion) typeIntro(state.texts[key]);
+  else { if (typing) finishTyping(); ta.value = state.texts[key]; ta.scrollTop = 0; paint(ta.value); }
+  setKind(key);
+  applyText(true);
+}
+$$('.presets button').forEach((b) => b.addEventListener('click', () => setPreset(b.dataset.p, { animateCode: true })));
+$$('.tab').forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab)));
+$('#btn-reset').addEventListener('click', () => {
+  state.texts[state.preset] = presetText(state.preset);
+  ta.value = state.texts[state.preset]; paint(ta.value);
+  applyText(false); toast('已恢复默认配置');
+});
+$('#btn-copy').addEventListener('click', () => {
+  const text = ta.value;
+  const fallback = () => { ta.focus(); ta.select(); toast('已全选，按 Ctrl/⌘+C 复制'); };
+  try { navigator.clipboard.writeText(text).then(() => toast('已复制到剪贴板'), fallback); } catch { fallback(); }
+});
+
+/* ---------- render controls ---------- */
+const SLIDERS = [
+  ['bloom', '辉光', 'bloom', 0, 2.5], ['gain', '亮度', 'exposure', 0.2, 2.5], ['size', '粒径', 'size', 0.3, 2.5], ['fiber', '纤维', 'fibers', 0, 1.5],
+  ['wind', '风', 'wind', 0, 3], ['turb', '湍流', 'turbulence', 0, 4], ['dof', '景深', 'aperture', 0, 3], ['spin', '自转', 'spin', 0, 4],
+];
+$('#sliders').innerHTML = SLIDERS.map(([id, zh, en, min, max]) => `<div class="row"><label for="s-${id}">${zh}<small>${en}</small><output id="o-${id}"></output></label><input type="range" id="s-${id}" min="${min}" max="${max}" step="0.01"></div>`).join('');
+$('#sliders').style.cssText = 'display:grid;gap:7px';
+function syncSliders() {
+  for (const [id, , , min, max] of SLIDERS) {
+    const el = $('#s-' + id); el.value = params[id];
+    el.style.setProperty('--pct', `${((params[id] - min) / (max - min)) * 100}%`);
+    $('#o-' + id).textContent = params[id].toFixed(2);
+  }
+}
+for (const [id, , , min, max] of SLIDERS) {
+  $('#s-' + id).addEventListener('input', (e) => {
+    params[id] = parseFloat(e.target.value);
+    e.target.style.setProperty('--pct', `${((params[id] - min) / (max - min)) * 100}%`);
+    $('#o-' + id).textContent = params[id].toFixed(2);
+    if (id === 'spin' && params.spin > 0 && !state.spin) setSpin(true);
+  });
+}
+syncSliders();
+$('#btn-defaults').addEventListener('click', () => { Object.assign(params, DEFAULTS); syncSliders(); toast('渲染参数已恢复默认'); });
+function setQuality(q, manual) {
+  if (!QUALITY[q]) return;
+  if (manual) state.manualQuality = true;
+  state.quality = q;
+  $$('#quality button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.q === q)));
+  $('#tune-q').textContent = $(`#quality button[data-q="${q}"]`).textContent;
+  if (herb.size === QUALITY[q]) return;
+  herb.dispose();
+  herb = new Herbarium(QUALITY[q]);
+  state.fpsLog = [];
+  if (state.lastCfg) requestBuild(state.lastCfg, false); else applyText(false);
+}
+$$('#quality button').forEach((b) => b.addEventListener('click', () => setQuality(b.dataset.q, true)));
+setQuality(state.quality, false);
+
+function setSpin(on) { state.spin = on; $('#btn-spin').setAttribute('aria-pressed', String(on)); }
+const tuneEl = $('#tune');
+function setTune(open) { tuneEl.hidden = !open; $('#btn-tune').setAttribute('aria-expanded', String(open)); if (open) $('#hint').classList.add('gone'); }
+function setCode(open) {
+  if (narrowMQ.matches) { body.classList.toggle('code-open', open); body.classList.remove('code-closed'); }
+  else body.classList.toggle('code-closed', !open);
+  $('#btn-code').setAttribute('aria-pressed', String(open));
+}
+const codeOpen = () => (narrowMQ.matches ? body.classList.contains('code-open') : !body.classList.contains('code-closed'));
+function toggleBare() { body.classList.toggle('bare'); if (body.classList.contains('bare')) toast('按 H 恢复界面'); }
+function burst(at, power) {
+  herb.vel.material.uniforms.uBurst.value.set(at.x, at.y, at.z, power);
+  state.kick = Math.max(state.kick, power * 0.4);
+}
+function regrow() { herb.regrow(state.simT); camTween = reduceMotion ? null : { t0: performance.now(), from: new THREE.Spherical().setFromVector3(camera.position.clone().sub(controls.target)), to: FINAL_SPH, dur: 3600 }; }
+$('#btn-spin').addEventListener('click', () => setSpin(!state.spin));
+$('#btn-burst').addEventListener('click', () => burst(state.focus, 3.2));
+$('#btn-regrow').addEventListener('click', regrow);
+$('#btn-full').addEventListener('click', () => {
+  const el = document.documentElement;
+  if (document.fullscreenElement) document.exitFullscreen?.();
+  else Promise.resolve(el.requestFullscreen?.()).catch(() => toast('当前环境不支持全屏'));
+});
+$('#btn-tune').addEventListener('click', () => setTune(tuneEl.hidden));
+$('#btn-code').addEventListener('click', () => setCode(!codeOpen()));
+$('#btn-close-code').addEventListener('click', () => setCode(false));
+$('#btn-hide').addEventListener('click', toggleBare);
+narrowMQ.addEventListener('change', () => { body.classList.remove('code-open', 'code-closed'); setCode(!narrowMQ.matches); setTune(!narrowMQ.matches); resize(); });
+
+addEventListener('keydown', (e) => {
+  const t = e.target;
+  if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT') || e.metaKey || e.ctrlKey || e.altKey) return;
+  const keys = Object.keys(PRESETS);
+  if (e.key >= '1' && e.key <= '4') setPreset(keys[+e.key - 1], { animateCode: true });
+  else if (e.key === ' ') { e.preventDefault(); setSpin(!state.spin); }
+  else if (e.key === 'b' || e.key === 'B') burst(state.focus, 3.2);
+  else if (e.key === 'g' || e.key === 'G') regrow();
+  else if (e.key === 'h' || e.key === 'H') toggleBare();
+  else if (e.key === 'c' || e.key === 'C') setCode(!codeOpen());
+  else if (e.key === 'f' || e.key === 'F') $('#btn-full').click();
+  else return;
+  dismissHint();
+});
+
+let toastTimer = 0;
+function toast(msg) { const el = $('#toast'); el.textContent = msg; el.classList.add('on'); clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('on'), 2200); }
+let hintGone = false;
+function dismissHint() { if (!hintGone) { hintGone = true; setTimeout(() => $('#hint').classList.add('gone'), 4000); } }
+setTimeout(dismissHint, 9000);
+if (coarse) $('#hint').innerHTML = '<kbd>拖动</kbd>旋转　<kbd>双指</kbd>缩放　<kbd>轻点</kbd>冲击';
+
+/* ---------- pointer ---------- */
+const pointer = { ndc: new THREE.Vector2(), inside: false, speed: 0, x: 0, y: 0, down: null, strength: 0 };
+const ray = new THREE.Raycaster();
+const rayO = new THREE.Vector3(0, 0, 50), rayD = new THREE.Vector3(0, 0, -1);
+function setNdc(e) { pointer.ndc.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); }
+canvas.addEventListener('pointermove', (e) => {
+  const dx = e.clientX - pointer.x, dy = e.clientY - pointer.y;
+  pointer.x = e.clientX; pointer.y = e.clientY;
+  pointer.speed = Math.min(2000, pointer.speed * 0.6 + Math.hypot(dx, dy) * 6);
+  pointer.inside = true; setNdc(e);
+});
+canvas.addEventListener('pointerleave', () => (pointer.inside = false));
+canvas.addEventListener('pointerdown', (e) => { pointer.down = { x: e.clientX, y: e.clientY, t: performance.now() }; pointer.inside = true; setNdc(e); pointer.x = e.clientX; pointer.y = e.clientY; dismissHint(); });
+canvas.addEventListener('pointerup', (e) => {
+  const d = pointer.down;
+  pointer.down = null;
+  if (e.pointerType !== 'mouse') pointer.inside = false;
+  if (!d || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 6 || performance.now() - d.t > 400) return;
+  setNdc(e);
+  ray.setFromCamera(pointer.ndc, camera);
+  const o = ray.ray.origin, dir = ray.ray.direction, t = Math.max(0, state.focus.clone().sub(o).dot(dir));
+  burst(o.clone().addScaledVector(dir, t), 3.4);
+});
+controls.addEventListener('start', () => { camTween = null; });
+
+/* ---------- layout: keep the specimen centred in the free part of the stage ---------- */
+const view = { cx: 0, cy: 0, fw: 1, fh: 1, init: false };
+function freeRect() {
+  const W = innerWidth, H = innerHeight;
+  if (body.classList.contains('bare')) return [0, 0, W, H];
+  if (narrowMQ.matches) {
+    const top = 110;
+    const bottom = body.classList.contains('code-open') ? H - $('#code').offsetHeight : H - 120;
+    return [0, top, W, Math.max(top + 200, bottom)];
+  }
+  return [codeOpen() ? $('#code').offsetWidth : 0, 40, W, H - 40];
+}
+function applyView(k) {
+  const W = innerWidth, H = innerHeight, [x0, y0, x1, y1] = freeRect();
+  const tcx = (x0 + x1) / 2, tcy = (y0 + y1) / 2, tfw = x1 - x0, tfh = y1 - y0;
+  if (!view.init) { Object.assign(view, { cx: tcx, cy: tcy, fw: tfw, fh: tfh, init: true }); k = 1; }
+  view.cx += (tcx - view.cx) * k; view.cy += (tcy - view.cy) * k; view.fw += (tfw - view.fw) * k; view.fh += (tfh - view.fh) * k;
+  const fullW = 2 * Math.max(view.cx, W - view.cx), fullH = 2 * Math.max(view.cy, H - view.cy);
+  const offX = view.cx > W / 2 ? 0 : fullW - W, offY = view.cy > H / 2 ? 0 : fullH - H;
+  camera.aspect = fullW / fullH;
+  camera.setViewOffset(fullW, fullH, offX, offY, W, H);
+  const fit = Math.min(1, (view.fw / view.fh) / 1.05);
+  camera.zoom = (view.fh / fullH) * Math.max(0.42, fit) * 0.86;
+  camera.updateProjectionMatrix();
+  lensPass.uniforms.uCenter.value.set(view.cx / W, 1 - view.cy / H);
+  lensPass.uniforms.uAspect.value = W / H;
+}
+function resize() {
+  const W = innerWidth, H = innerHeight;
+  // cap the drawing buffer near 5 MP so bloom and the particle fill stay affordable on big screens
+  const pr = Math.min(devicePixelRatio || 1, coarse ? 1.6 : 2, Math.sqrt(5e6 / (W * H)));
+  renderer.setPixelRatio(pr);
+  renderer.setSize(W, H, false);
+  composer.setPixelRatio(pr);
+  composer.setSize(W, H);
+  measure();
+  applyView(1);
+}
+addEventListener('resize', resize);
+
+/* ---------- camera intro ---------- */
+let camTween = reduceMotion ? null : { t0: performance.now() + 300, from: START_SPH, to: FINAL_SPH, dur: 5200 };
+const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+function updateTween(now) {
+  if (!camTween) return;
+  const k = Math.min(1, Math.max(0, (now - camTween.t0) / camTween.dur)), e = ease(k), a = camTween.from, b = camTween.to;
+  let dTheta = b.theta - a.theta;
+  dTheta = Math.atan2(Math.sin(dTheta), Math.cos(dTheta));
+  const s = new THREE.Spherical(a.radius + (b.radius - a.radius) * e, a.phi + (b.phi - a.phi) * e, a.theta + dTheta * e);
+  camera.position.setFromSpherical(s).add(controls.target);
+  camera.lookAt(controls.target);
+  if (k >= 1) camTween = null;
+}
+
+/* ---------- main loop ---------- */
+const stats = { fps: 60, acc: 0, frames: 0, last: 0 };
+const scaleI = $('#scale-i'), scaleT = $('#scale-t'), statsEl = $('#stats');
+let last = performance.now();
+const tmpV = new THREE.Vector3(), drawSize = new THREE.Vector2();
+let paused = false;
+function frame(now) {
+  requestAnimationFrame(frame);
+  if (!paused) tick(now);
+}
+function tick(now) {
+  const raw = Math.min(0.25, (now - last) / 1000);
+  last = now;
+  const dt = Math.min(raw, 1 / 30);
+  state.simT += dt;
+  renderer.info.reset();
+
+  applyView(1 - Math.exp(-raw * 7));
+  updateTween(now);
+  controls.autoRotate = state.spin && params.spin > 0 && !camTween;
+  controls.autoRotateSpeed = params.spin;
+  controls.update(raw);
+
+  // pointer ray, smoothed so the stirring feels like a hand in water
+  ray.setFromCamera(pointer.ndc, camera);
+  rayO.lerp(ray.ray.origin, 0.35); rayD.lerp(ray.ray.direction, 0.35).normalize();
+  pointer.speed *= Math.exp(-raw * 4);
+  const target = pointer.inside ? (pointer.down ? 0.35 : 0.45 + Math.min(1.1, pointer.speed / 900)) : 0;
+  pointer.strength += (target - pointer.strength) * (1 - Math.exp(-raw * 6));
+  state.kick *= Math.exp(-raw * 1.3);
+
+  const u = herb.vel.material.uniforms;
+  u.uRayOrigin.value.copy(rayO); u.uRayDir.value.copy(rayD); u.uMouse.value = pointer.strength;
+  u.uWind.value = params.wind; u.uTurbulence.value = params.turb; u.uKick.value = state.kick;
+  herb.step(dt, state.simT);
+
+  // accent colour drifts to the current specimen
+  if (state.accentTarget) { accentColor.lerp(state.accentTarget, 1 - Math.exp(-raw * 2)); halo.material.color.copy(accentColor); pool.material.color.copy(accentColor); dust.uniforms.uTint.value.copy(accentColor); }
+  halo.position.copy(state.focus);
+
+  const focusDist = camera.position.distanceTo(state.focus);
+  renderer.getDrawingBufferSize(drawSize);
+  const pm = herb.pointMat.uniforms, lm = herb.lineMat.uniforms;
+  pm.uResY.value = drawSize.y; pm.uFocus.value = focusDist; pm.uAperture.value = params.dof; pm.uTime.value = state.simT;
+  // additive light piles up with particle count, so brightness is normalised to the 262K reference
+  const density = Math.pow(262144 / herb.N, 0.8);
+  pm.uSize.value = 0.0055 * params.size; pm.uGain.value = 0.16 * params.gain * density;
+  lm.uFocus.value = focusDist; lm.uAperture.value = params.dof * 0.12; lm.uOpacity.value = params.fiber; lm.uGain.value = 0.07 * params.gain * density * renderer.getPixelRatio();
+  dust.uniforms.uResY.value = drawSize.y; dust.uniforms.uFocus.value = focusDist; dust.uniforms.uAperture.value = params.dof; dust.uniforms.uTime.value = state.simT;
+  bloomPass.strength = params.bloom;
+  lensPass.uniforms.uTime.value = state.simT;
+
+  composer.render(raw);
+
+  // readouts
+  stats.frames++; stats.acc += raw;
+  if (now - stats.last > 500) {
+    stats.fps = stats.frames / Math.max(1e-3, stats.acc); stats.frames = 0; stats.acc = 0; stats.last = now;
+    // herbarium scale bar: 1 world unit = 10 cm
+    const ppu = (camera.projectionMatrix.elements[5] * innerHeight * 0.5) / Math.max(0.1, -tmpV.copy(state.focus).applyMatrix4(camera.matrixWorldInverse).z);
+    let cm = 5;
+    if (ppu * 0.5 > 150) cm = 2; else if (ppu * 0.5 < 34) cm = 10;
+    scaleI.style.width = `${Math.round(ppu * cm * 0.1)}px`; scaleT.textContent = `${cm} cm`;
+    const sph = new THREE.Spherical().setFromVector3(tmpV.copy(camera.position).sub(controls.target));
+    statsEl.innerHTML = `<b>${stats.fps.toFixed(0)}</b> fps · draw <b>${renderer.info.render.calls}</b><br>`
+      + `<b>${herb.N.toLocaleString('en-US')}</b> particles · <b>${herb.strands.toLocaleString('en-US')}</b> fibers<br>`
+      + `az ${((THREE.MathUtils.radToDeg(sph.theta) + 360) % 360).toFixed(0).padStart(3, '0')}° · el ${(90 - THREE.MathUtils.radToDeg(sph.phi)).toFixed(0)}° · d ${sph.radius.toFixed(2)}`;
+    autoQuality();
+  }
+}
+// Step down the particle count once if the device clearly can't keep up.
+function autoQuality() {
+  if (state.manualQuality || state.simT < 6 || document.hidden) return;
+  (state.fpsLog ||= []).push(stats.fps);
+  if (state.fpsLog.length < 6) return;
+  const avg = state.fpsLog.slice(-6).reduce((a, b) => a + b, 0) / 6;
+  const order = ['low', 'mid', 'high', 'ultra'], i = order.indexOf(state.quality);
+  if (avg < 24 && i > 0 && state.downgraded < 2) {
+    state.downgraded++;
+    setQuality(order[i - 1], false);
+    toast(`帧率偏低，已切换到 ${$(`#quality button[data-q="${order[i - 1]}"]`).textContent} 粒子`);
+  }
+  state.fpsLog = [];
+}
+
+/* ---------- boot ---------- */
+setCode(!narrowMQ.matches);
+setTune(false);
+resize();
+document.fonts?.ready.then(() => { measure(); paint(ta.value); });
+setKind('peony');
+setPreset('peony', { animateCode: true });
+window.__herbStarted = true;
+$('#fail').hidden = true;
+canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); $('#fail').hidden = false; $('#fail').querySelector('b').textContent = 'WebGL 上下文丢失，请刷新页面'; });
+// handle for scripted checks: advance the simulation without waiting for real time
+window.__herb = {
+  warp(sec, dt = 1 / 60) { for (let t = 0; t < sec; t += dt) { state.simT += dt; herb.step(dt, state.simT); } },
+  pause(on) { paused = on; }, tick: () => tick(performance.now()),
+  setQuality: (q) => setQuality(q, true), setPreset, params, state, get herb() { return herb; }, THREE, renderer, composer,
+};
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
