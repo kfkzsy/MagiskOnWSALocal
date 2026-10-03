@@ -1697,7 +1697,8 @@ class Herbarium {
     }
     const front = -2.2 + (t - G.t0) * 0.9, live = front < 2.4, amp = live ? G.amp * params.wind : 0;
     u.uGust.value.set(G.x, G.z, front, amp);
-    Object.assign(this.gustOut, { x: G.x, z: G.z, front, amp });
+    const go = this.gustOut;
+    go.x = G.x; go.z = G.z; go.front = front; go.amp = amp;   // no per-frame allocation
     state.gust = this.gustOut;
     if (!this.groups.length) return;
     const age = t - u.uMorphStart.value;
