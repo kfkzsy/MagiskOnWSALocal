@@ -1072,7 +1072,7 @@ function GEN() {
     function diaspore(O, d, Lb, La, Bn, drift) {
       const [u, w] = frame(d), A1 = add(O, d, -Lb), S0 = add(A1, d, -La), bow = scale(u, Lb * 0.03 * (r() - 0.5));
       // a lone seed against the dark needs a stronger achene and beak than one inside the clock
-      achene(S0, d, u, w, La, 0.0065 * (Rs / 0.46), drift, 1.7);
+      achene(S0, d, u, w, La, 0.0065 * (Rs / 0.46), drift, 2.6);
       beak(A1, O, bow, drift, 2);
       pappus(O, d, u, w, Bn, Rs * pl, drift, 0.025);
     }
