@@ -410,8 +410,8 @@ const SPECIMENS = {
 const PRESETS = {
   peony: {
     flower: 'peony', seed: 7,
-    bloom: { petals: [5, 8, 12], crown: 200, radius: 1.0, openness: 0.7, ruffle: 1.1, cup: 0.8, frill: 0.8, nod: 14 },
-    palette: { base: '#7a1836', petal: '#e27590', tip: '#fff1f3', core: '#e2b45c', sepal: '#7f9a62', stem: '#c0283f', leaf: '#eef2f8' },
+    bloom: { petals: [5, 8, 12], crown: 150, radius: 1.0, openness: 0.7, ruffle: 1.1, cup: 0.8, frill: 0.8, nod: 14 },
+    palette: { base: '#7a1836', petal: '#e8678a', tip: '#fff1f3', core: '#e2b45c', sepal: '#7f9a62', stem: '#c0283f', leaf: '#eef2f8' },
     stem: { length: 0.8, bend: 0.06, thickness: 0.04 },
     leaves: { count: 2, length: 0.36, height: 0.42, angle: -38 },
     fiber: { fuzz: 0.5, crimp: 1, hair: 1, dew: 5 },
@@ -666,8 +666,8 @@ function GEN() {
     const r = b.r, g = b.g, bl = cfg.bloom || {}, pal = cfg.palette || {}, st = cfg.stem || {}, lv = cfg.leaves || {}, fb = cfg.fiber || {};
     const R = num(bl.radius, 1, 0.4, 1.15), open = num(bl.openness, 0.7, 0, 1.4), ruf = num(bl.ruffle, 1.1, 0, 2), cupK = num(bl.cup, 0.8, -1, 1.5), frillK = num(bl.frill, 0.8, 0, 2), tilt = (num(bl.nod, 14, -45, 45) * Math.PI) / 180;
     const rings = (Array.isArray(bl.petals) ? bl.petals : [5, 8, 12]).slice(0, 8).map((x) => Math.round(num(x, 8, 0, 40)));
-    const nCrown = Math.round(num(bl.crown, 200, 0, 500)), fuzz = num(fb.fuzz, 0.5, 0, 2), crimpK = num(fb.crimp, 1, 0, 2), hairK = num(fb.hair, 1, 0, 2), nDew = Math.round(num(fb.dew, 5, 0, 12));
-    const C = { base: hex(pal.base, '#7a1836'), petal: hex(pal.petal, '#e27590'), tip: hex(pal.tip, '#fff1f3'), core: hex(pal.core, '#e2b45c'), sepal: hex(pal.sepal, '#7f9a62'), stem: hex(pal.stem, '#c0283f'), leaf: hex(pal.leaf, '#eef2f8') };
+    const nCrown = Math.round(num(bl.crown, 150, 0, 500)), fuzz = num(fb.fuzz, 0.5, 0, 2), crimpK = num(fb.crimp, 1, 0, 2), hairK = num(fb.hair, 1, 0, 2), nDew = Math.round(num(fb.dew, 5, 0, 12));
+    const C = { base: hex(pal.base, '#7a1836'), petal: hex(pal.petal, '#e8678a'), tip: hex(pal.tip, '#fff1f3'), core: hex(pal.core, '#e2b45c'), sepal: hex(pal.sepal, '#7f9a62'), stem: hex(pal.stem, '#c0283f'), leaf: hex(pal.leaf, '#eef2f8') };
     const sLen = num(st.length, 0.8, 0.3, 1.2), bend = num(st.bend, 0.06, -0.3, 0.3), thick = num(st.thickness, 0.04, 0.008, 0.08);
     // the ball is an ellipsoid resting on the receptacle; a long stem gives way before the bloom meets the lid
     const y0 = -1.32, yR = Math.min(y0 + sLen, 1.3 - 1.56 * R), ax = bend * 0.4, RX = 0.96 * R, RY = 0.88 * R, cY = yR + 0.68 * R;
@@ -690,7 +690,7 @@ function GEN() {
       (u) => Math.pow(Math.max(0, Math.sin(Math.PI * Math.min(1, 0.04 + 0.96 * u))), 0.8), // pointed
     ];
     function mk(o) {
-      o = Object.assign({ cup: 0, ruf: 0, rufF: 7, frill: 0, frillF: 7, crum: 0, reflex: 0, wrap: 0.7, twist: 0, rim: 0.6, tipAmt: 0.6, gain: 1, size: 1, hair: 0.24, hairL: 0.08, surf: 0.5, mShare: 0.24, vShare: 0.05, claw: 0.3, clawU: 0.35, crimp: 1, tb: 0, h0: 0.4, h1: 0.4, shape: 0, T: [ax, 0, 0], M: null, lit: false, drift: 0 }, o);
+      o = Object.assign({ cup: 0, ruf: 0, rufF: 7, frill: 0, frillF: 7, crum: 0, reflex: 0, wrap: 0.7, twist: 0, rim: 0.6, tipAmt: 0.6, gain: 1, size: 1, hair: 0.3, hairL: 0.08, surf: 0.5, mShare: 0.24, vShare: 0.05, claw: 0.3, clawU: 0.35, crimp: 1, tb: 0, h0: 0.4, h1: 0.4, shape: 0, T: [ax, 0, 0], M: null, lit: false, drift: 0 }, o);
       const c = Math.hypot(o.p1[0] - o.p0[0], o.p1[1] - o.p0[1]), h0 = c * o.h0, h1 = c * o.h1;
       o.B = [o.p0[0], o.p0[1], o.p0[0] + Math.sin(o.a0) * h0, o.p0[1] + Math.cos(o.a0) * h0, o.p1[0] - Math.sin(o.a1) * h1, o.p1[1] - Math.cos(o.a1) * h1, o.p1[0], o.p1[1]];
       o.wp = WP[o.shape]; o.ph = r() * TAU; o.ph2 = r() * TAU;
@@ -716,16 +716,18 @@ function GEN() {
       if (M) { out[0] = T[0] + M[0] * x + M[1] * yy + M[2] * z; out[1] = T[1] + M[3] * x + M[4] * yy + M[5] * z; out[2] = T[2] + M[6] * x + M[7] * yy + M[8] * z; }
       else { out[0] = T[0] + x; out[1] = T[1] + yy; out[2] = T[2] + z; }
     }
-    // where the margin sits (as u) for lateral position v: outline shape plus a two-frequency torn frill
+    // where the margin sits (as u) for lateral position v: outline shape plus an irregular torn frill,
+    // its depth scaled to the petal's width so broad petals ripple instead of saw-toothing
     function edge(o, v) {
       const av = Math.abs(v);
       let e = o.shape === 2 ? 1 - Math.pow(av, 1.8) * 0.9 : o.shape === 1 ? Math.sqrt(Math.max(0.02, 1 - av * av * 0.62)) : 1 - av * av * 0.22;
       if (o.frill) e += (o.frill * o.wid * (0.09 * Math.sin(v * o.frillF * Math.PI + o.ph) + 0.05 * Math.sin(v * o.frillF * 2.3 + o.ph2) + 0.03 * Math.sin(v * o.frillF * 4.1 + o.ph * 2))) / o.len;
       return clamp(e, 0.05, 1.1);
     }
+    // the same outline without the frill, for fibres that must stay clear of the torn edge
     const edge0 = (o, v) => { const av = Math.abs(v); return o.shape === 2 ? 1 - Math.pow(av, 1.8) * 0.9 : o.shape === 1 ? Math.sqrt(Math.max(0.02, 1 - av * av * 0.62)) : 1 - av * av * 0.22; };
-    // inner layers stay dim wine, so the ball reads from its surface instead of a blown-out core
-    // a soft key lamp from the viewer's side keeps the near face fuller than the limb of the shell
+    // inner layers sit a little dimmer than the surface, and a soft key lamp from the viewer's side keeps
+    // the near face of the ball as full as its limb, where an additive shell otherwise piles up
     function deep(o, p) {
       if (o.lit) return 1;
       const dx = (p[0] - ax) / RX, dy = (p[1] - cY) / RY, dz = p[2] / RX, d = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
@@ -736,7 +738,7 @@ function GEN() {
     // colour (into cc) and gain: wine claw -> rose body -> light frilled margin
     const cc = [0, 0, 0];
     function shade(o, v, u, e, p, toTip) {
-      const tipF = Math.pow(sstep(0.6, 1, u / e), 1.5), rim = sstep(0.75, 1, Math.abs(v)) * o.rim, m = sstep(0, 0.55, u);
+      const tipF = Math.pow(sstep(0.6, 1, u / e), 1.5), rim = sstep(0.75, 1, Math.abs(v)) * o.rim, m = sstep(0.05, 0.75, u);
       const t = Math.min(1, o.tipAmt * (Math.max(tipF, rim * 0.7) + toTip) * (0.55 + 0.65 * topOf(o, p)));
       for (let i = 0; i < 3; i++) { const c0 = o.cBase[i] + (o.cMid[i] - o.cBase[i]) * m; cc[i] = c0 + (o.cTip[i] - c0) * t; }
       return o.gain * deep(o, p) * (0.8 + rim * 0.5 + tipF * 0.35) * (o.claw + (1 - o.claw) * sstep(0, o.clawU, u));
@@ -758,12 +760,12 @@ function GEN() {
       const dir = rimHair ? norm([tu[0] + n[0] * 0.25 + j[0], tu[1] + n[1] * 0.25 + j[1], tu[2] + n[2] * 0.25 + j[2]]) : norm([n[0] + tu[0] * 0.4 + j[0], n[1] + tu[1] * 0.4 + j[1], n[2] + tu[2] * 0.4 + j[2]]);
       const e1 = norm(cross(dir, tv)), e2 = cross(dir, e1), A = [H0[0], H0[1], H0[2]], top = topOf(o, A);
       const Lh = o.hairL * (0.4 + 0.9 * r()) * (rimHair ? 1 : 0.6), turns = (0.5 + 1.4 * r()) * (r() < 0.5 ? -1 : 1), rad = Lh * (0.08 + 0.14 * r()), ph = r() * TAU, bendK = (r() - 0.5) * 0.9;
-      const hero = r() < 0.12, bright = (0.5 + 0.4 * r()) * (hero ? 1.7 : 0.75) * o.gain * deep(o, A), cp = Math.cos(ph), sp = Math.sin(ph);
+      const hero = r() < 0.12, bright = (0.5 + 0.4 * r()) * (hero ? 1.7 : 0.75) * 1.8 * o.gain * deep(o, A), cp = Math.cos(ph), sp = Math.sin(ph);
       const c0 = rimHair ? o.cLite : mix(o.cMid, o.cLite, 0.5), c1 = mix(o.cLite, o.cTip, (rimHair ? 0.35 : 0.1) + 0.6 * top);
       for (let k = 0; k < K; k++) {
         const t = k / (K - 1), an = ph + turns * TAU * t, cr = (Math.cos(an) - cp) * rad + bendK * Lh * t * t, sr = (Math.sin(an) - sp) * rad, al = Lh * t;
         b.pt(k, A[0] + dir[0] * al + e1[0] * cr + e2[0] * sr, A[1] + dir[1] * al + e1[1] * cr + e2[1] * sr, A[2] + dir[2] * al + e1[2] * cr + e2[2] * sr,
-          mix(c0, c1, sstep(0, 0.8, t)), bright * (1 - 0.4 * t) * (k ? 1 : 0.6), (0.45 + 0.4 * r()) * o.size, 0.45 + 0.55 * t, hero ? 1.1 : 0.8, o.drift);
+          mix(c0, c1, sstep(0, 0.8, t)), bright * (1 - 0.4 * t) * (k ? 1 : 0.6), (0.45 + 0.4 * r()) * o.size, 0.3 + 0.35 * t, hero ? 1.1 : 0.8, o.drift);
       }
       b.end();
       // a few hairs on the lit side carry a bead of dew
@@ -773,7 +775,7 @@ function GEN() {
     // one petal in exactly n strands: radial fibres, margins, cross-fibres, veins and hairs
     function petal(o, n) {
       if (n <= 0) return;
-      const nM = Math.round(n * o.mShare), nT = Math.round(n * 0.06), nH = Math.min(n - nM - nT, Math.round(n * o.hair * hairK)), nV = Math.min(n - nM - nT - nH, Math.round(n * o.vShare)), nR = n - nM - nT - nH - nV;
+      const nM = Math.min(n, Math.round(n * o.mShare)), nT = Math.min(n - nM, Math.round(n * 0.06)), nH = Math.min(n - nM - nT, Math.round(n * o.hair * hairK)), nV = Math.min(n - nM - nT - nH, Math.round(n * o.vShare)), nR = n - nM - nT - nH - nV;
       const jit = fuzz * 0.004, L = o.len;
       // radial fibres: short crimped windows, placed by the width profile so density per area stays even
       for (let i = 0; i < nR; i++) {
@@ -781,18 +783,18 @@ function GEN() {
         let um = r();
         for (let tries = 0; tries < 8 && r() > o.wp(um) * (1 - o.tb + o.tb * um); tries++) um = r();
         const u0 = clamp(um * e - span / 2, 0, Math.max(0, e - span)), u1 = Math.min(e, u0 + span);
-        const hero = r() < 0.1, bright = (0.7 + 0.5 * r()) * (hero ? 1.7 : 1.1), ph = r() * TAU, dv = (r() - 0.5) * 0.14, A = 0.009 * crimpK * o.crimp;
+        const hero = r() < 0.1, bright = (0.7 + 0.5 * r()) * (hero ? 1.8 : 1.35), ph = r() * TAU, dv = (r() - 0.5) * 0.14, A = 0.009 * crimpK * o.crimp;
         for (let k = 0; k < K; k++) {
           const t = k / (K - 1), u = u0 + (u1 - u0) * t, vv = clamp(v + dv * t, -1, 1), a = A * (0.4 + u), q = ((u * L) / 0.1) * TAU + ph;
           pp(o, vv, u, a * Math.sin(q), 0.6 * a * Math.cos(q * 1.15 + 1), Q);
-          b.pt(k, Q[0] + g() * jit, Q[1] + g() * jit, Q[2] + g() * jit, cc, shade(o, vv, u, e, Q, 0) * bright, o.size * (0.6 + 0.8 * r()), u * u, hero ? 1.25 : 0.8, o.drift);
+          b.pt(k, Q[0] + g() * jit, Q[1] + g() * jit, Q[2] + g() * jit, cc, shade(o, vv, u, e, Q, 0) * bright, o.size * (0.6 + 0.8 * r()), u * u, hero ? 1.25 : 0.95, o.drift);
         }
         b.end();
       }
       // margins: light frilled outlines running across the petal, so each petal shows its own edge
       const vs = Math.min(2, 0.3 / Math.max(0.03, o.wid * o.wp(0.95)), 3.2 / Math.max(1, o.frillF));
       for (let i = 0; i < nM; i++) {
-        const va = -1 + (2 - vs) * ((i + r()) / nM), m = 1 - 0.09 * r() * r(), hero = r() < 0.15, bright = (0.85 + 0.3 * r()) * (hero ? 1.6 : 1) * 1.25, ph = r() * TAU;
+        const va = -1 + (2 - vs) * ((i + r()) / nM), m = 1 - 0.04 * r(), hero = r() < 0.15, bright = (0.85 + 0.3 * r()) * (hero ? 1.6 : 1) * 1.1, ph = r() * TAU;
         for (let k = 0; k < K; k++) {
           const t = k / (K - 1), v = va + vs * t, e = edge(o, v), u = e * m;
           pp(o, v, u, 0, 0.005 * Math.sin(t * 9 + ph), Q);
@@ -837,10 +839,10 @@ function GEN() {
         const ga = lerp(1.3, 0.85, t) + open * 0.2 * (1 - t) + (r() - 0.5) * 0.12, s = lerp(1.01, 0.96, t) * (0.98 + 0.04 * r()), p1 = env(ga, s);
         ringP.push(mk({
           az: ((j + 0.3 * r()) / n) * TAU + i * 2.39996, ring: i,
-          p0: [lerp(0.11, 0.06, t) * R, yR + lerp(0, 0.06, t) * R], a0: lerp(1.75, 0.9, t) + (r() - 0.5) * 0.2, p1, a1: lerp(upT(ga), outN(ga), clamp(open * lerp(0.4, 0.15, t) + (r() - 0.5) * 0.15, 0, 1)), h0: 0.45,
+          p0: env(lerp(2.25, 1.95, t), 0.72), a0: lerp(1.15, 0.6, t) + (r() - 0.5) * 0.2, p1, a1: lerp(upT(ga), outN(ga), clamp(open * lerp(0.4, 0.15, t) + (r() - 0.5) * 0.15, 0, 1)), h0: 0.45,
           wid: lerp(0.5, 0.32, t) * R * (0.88 + 0.24 * r()), cup: cupK * lerp(0.6, 0.9, t), ruf: ruf * lerp(0.9, 0.6, t), rufF: 5 + r() * 5, frill: frillK, frillF: 4 + r() * 3, crum: 0.1 + 0.1 * t, wrap: 0.85, twist: (r() - 0.5) * 0.3,
           cBase: mix(C.base, C.petal, 0.35 + 0.2 * t), cMid: mix(variant(), C.tip, 0.1), cTip: C.tip, tipAmt: 0.6, rim: 0.5, gain: lerp(1.2, 1.25, t),
-          hairL: 0.1 * R, tb: 0.45, claw: 0.05, clawU: 0.5,
+          hairL: 0.1 * R, tb: 0.3, claw: 0.1, clawU: 0.4,
         }));
       }
     });
@@ -853,13 +855,13 @@ function GEN() {
         const ga = lerp(g0, g1, 0.15 + 0.7 * r()), az = azOff + ((j + 0.35 * r()) / n) * TAU, p1 = env(ga, 0.94 + 0.09 * r()), p0 = env(ga * (0.7 + 0.2 * r()), 0.42 + 0.14 * r()), q = r();
         // most tips incurve toward the crown, some flare out, a few fold back
         const a1 = q < 0.68 ? lerp(upT(ga), outN(ga), 0.3 * r()) : q < 0.9 ? lerp(outN(ga), upT(ga), 0.5 * r()) : outN(ga) + 0.6 + 0.4 * r();
-        // each whorl overlaps itself ~1.6x around its circumference
-        const wid = clamp((TAU * RX * Math.sin(ga) * 0.8) / Math.max(1, n), 0.07 * R, 0.24 * R) * (0.85 + 0.3 * r());
+        // each whorl overlaps itself ~1.4x around its circumference
+        const wid = clamp((TAU * RX * Math.sin(ga) * 0.7) / Math.max(1, n), 0.08 * R, 0.28 * R) * (0.85 + 0.3 * r());
         crownP.push(mk({
           az, p0, a0: Math.atan2(p1[0] - p0[0], p1[1] - p0[1]) + (r() - 0.5) * 0.4, p1, a1, h0: 0.35, h1: 0.35,
-          wid, shape: r() < 0.25 ? 1 : 0, cup: cupK * (0.7 + 0.7 * r()) * (r() < 0.12 ? -1 : 1), ruf: ruf * 0.8, rufF: 5 + r() * 5, frill: frillK, frillF: 3 + r() * 3, crum: 0.3 + 0.3 * r(), wrap: 0.75, twist: (r() - 0.5) * 0.6,
+          wid, shape: r() < 0.25 ? 1 : 0, cup: cupK * (0.4 + 0.5 * r()) * (r() < 0.12 ? -1 : 1), ruf: ruf * 0.8, rufF: 5 + r() * 5, frill: frillK, frillF: 3 + r() * 3, crum: 0.3 + 0.3 * r(), wrap: 0.75, twist: (r() - 0.5) * 0.6,
           cBase: mix(C.base, C.petal, 0.4), cMid: mix(variant(), C.tip, 0.12), cTip: C.tip, tipAmt: 0.65, rim: 0.5, gain: 1.45,
-          hairL: 0.07 * R, tb: 0.15, size: 0.95,
+          hairL: 0.07 * R, mShare: 0.15, tb: 0.15, size: 0.95,
         }));
       }
     });
@@ -869,9 +871,9 @@ function GEN() {
       const f = (i + 0.5) / nBud, ga = 0.04 + gBud * Math.sqrt(f), az = i * GA, p1 = env(ga, 0.96 + 0.05 * f);
       budP.push(mk({
         az, p0: env(ga * 0.3, 0.7 + 0.1 * f), a0: 0.15, p1, a1: lerp(upT(ga), outN(ga), 0.15 + 0.3 * f), h0: 0.4, h1: 0.45,
-        wid: (0.07 + 0.2 * f) * R, shape: 1, cup: cupK * 1.6, ruf: ruf * 0.6, rufF: 6, frill: frillK, frillF: 4 + r() * 2, crum: 0.15, wrap: 1, twist: 0.4,
-        cBase: mix(C.base, C.petal, 0.5), cMid: mix(variant(), C.tip, 0.2), cTip: C.tip, tipAmt: 0.75, rim: 0.6, gain: 1.35,
-        hair: 0.18, hairL: 0.05 * R, mShare: 0.32, tb: 0.5, size: 0.9,
+        wid: (0.06 + 0.14 * f) * R, shape: 1, cup: cupK * 0.8, ruf: ruf * 0.5, rufF: 6, frill: frillK, frillF: 4 + r() * 2, crum: 0.15, wrap: 1, twist: 0.4,
+        cBase: mix(C.base, C.petal, 0.4), cMid: mix(variant(), C.tip, 0.1), cTip: C.tip, tipAmt: 0.55, rim: 0.5, gain: 0.9,
+        hair: 0.18, hairL: 0.05 * R, mShare: 0.22, tb: 0.5, size: 0.9,
       }));
     }
     crownP.push(...budP);
@@ -882,8 +884,8 @@ function GEN() {
       sepP.push(mk({
         az: ((j + r() * 0.6) / nNarrow) * TAU, p0: [(0.1 + 0.08 * r()) * R, yR - 0.03 * R], a0: 2 + (r() - 0.5) * 0.2, p1, a1: lerp(upT(ga), outN(ga), 0.05 + 0.15 * r()), h0: 0.42,
         wid: 0.11 * R * (0.8 + 0.4 * r()), shape: 2, cup: 0.4, ruf: 0.3, rufF: 9, frill: 0.3, frillF: 5, crum: 0.15, wrap: 0.5, twist: (r() - 0.5) * 0.4,
-        cBase: scale(C.sepal, 0.3), cMid: mix(C.sepal, [C.sepal[0] * 1.2, C.sepal[1], C.sepal[2] * 0.7], r()), cTip: mix(C.sepal, WHITE, 0.6), tipAmt: 0.85, rim: 0.4, gain: 1.8,
-        hair: 0.4, hairL: 0.07 * R, surf: 0.65, mShare: 0.1, vShare: 0, crimp: 1.4, tb: 0.7, size: 0.9,
+        cBase: scale(C.sepal, 0.3), cMid: mix(C.sepal, [C.sepal[0] * 1.2, C.sepal[1], C.sepal[2] * 0.7], r()), cTip: mix(C.sepal, WHITE, 0.6), tipAmt: 0.85, rim: 0.4, gain: 2.2,
+        hair: 0.5, hairL: 0.07 * R, surf: 0.75, mShare: 0.08, vShare: 0, crimp: 1.4, tb: 0.7, size: 0.9,
       }));
     }
     for (let j = 0; j < 5; j++) {
@@ -900,7 +902,7 @@ function GEN() {
     const rotM = (tx, tz) => { const cx = Math.cos(tx), sx = Math.sin(tx), cz = Math.cos(tz), sz = Math.sin(tz); return [cz, -sz, 0, cx * sz, cx * cz, -sx, sx * sz, sx * cz, cx]; };
     const looseC = { cBase: mix(C.base, C.petal, 0.4), cMid: C.petal, cTip: C.tip, tipAmt: 0.6, rim: 0.5, frill: frillK, frillF: 5, crum: 0.15, wrap: 0, lit: true, hair: 0.2 };
     const looseP = [
-      mk(Object.assign({}, looseC, { az: 0, p0: [0, 0], a0: 1, p1: [0.3 * R, 0.12 * R], a1: 2, wid: 0.17 * R, cup: 0.6, ruf: 0.8, rufF: 8, gain: 0.85, hairL: 0.07 * R, T: [1, 0.55, -0.72], M: rotM(-0.4, 0.6), drift: 1 })),
+      mk(Object.assign({}, looseC, { az: 0, p0: [0, 0], a0: 1, p1: [0.3 * R, 0.12 * R], a1: 2, wid: 0.17 * R, cup: 0.6, ruf: 0.8, rufF: 8, gain: 0.55, hairL: 0.07 * R, T: [1, 0.55, -0.72], M: rotM(-0.4, 0.6), drift: 1 })),
       mk(Object.assign({}, looseC, { az: 0.9, p0: [0, 0], a0: 1.45, p1: [0.34 * R, 0.015], a1: 1.7, wid: 0.19 * R, cup: 0.35, ruf: 0.35, rufF: 7, gain: 0.6, hairL: 0.05 * R, T: [-0.78, -1.405, 0.52] })),
     ];
 
@@ -908,14 +910,14 @@ function GEN() {
     function stamen() {
       const az = r() * TAU, ga = Math.acos(1 - r() * (1 - Math.cos(0.7))), p1 = env(ga, 0.74 + 0.16 * r()), rho0 = 0.22 * R * Math.sqrt(r()), ca = Math.cos(az), sa = Math.sin(az);
       const P0 = [ax + rho0 * ca, yR + 0.08 * R, rho0 * sa], P1 = [ax + p1[0] * ca, p1[1], p1[0] * sa], bow = [(r() - 0.5) * 0.15, 0, (r() - 0.5) * 0.15], d = norm([P1[0] - P0[0], P1[1] - P0[1], P1[2] - P0[2]]), bright = 0.7 + 0.5 * r();
-      const dim = deep({}, P1), cf = mix(C.base, C.core, 0.35), ca2 = mix(C.core, WHITE, 0.25);
+      const dim = deep({}, P1), cFil = mix(C.base, C.core, 0.35), cHi = mix(C.core, WHITE, 0.25);
       for (let k = 0; k < K; k++) {
         if (k < 11) {
           const t = k / 10, s = Math.sin(Math.PI * t);
-          b.pt(k, lerp(P0[0], P1[0], t) + bow[0] * s, lerp(P0[1], P1[1], t), lerp(P0[2], P1[2], t) + bow[2] * s, cf, 0.25 * bright * dim, 0.4, t * 0.5, 0.35, 0);
+          b.pt(k, lerp(P0[0], P1[0], t) + bow[0] * s, lerp(P0[1], P1[1], t), lerp(P0[2], P1[2], t) + bow[2] * s, cFil, 0.25 * bright * dim, 0.4, t * 0.5, 0.35, 0);
         } else {
           const a = (k - 11) * 0.006;
-          b.pt(k, P1[0] + d[0] * a + g() * 0.002, P1[1] + d[1] * a + g() * 0.002, P1[2] + d[2] * a + g() * 0.002, k === 13 ? ca2 : C.core, 0.9 * bright * dim, 1.25, 0.6, 0.6, 0);
+          b.pt(k, P1[0] + d[0] * a + g() * 0.002, P1[1] + d[1] * a + g() * 0.002, P1[2] + d[2] * a + g() * 0.002, k === 13 ? cHi : C.core, 0.9 * bright * dim, 1.25, 0.6, 0.6, 0);
         }
       }
       b.end();
@@ -940,7 +942,7 @@ function GEN() {
     // ---- leaves: a pair of white wings just under the collar, each two broad toothed lobes, veined and stippled
     function leaflet(O, f, sd, nn, L, n) {
       if (n <= 0) return;
-      const nTe = 11 + ((r() * 5) | 0), tph = r(), wid = 0.46 * L, fold = 0.3, lift = 0.1, ph = r() * TAU, lg = 0.85;
+      const nTe = 11 + ((r() * 5) | 0), tph = r(), wid = 0.46 * L, fold = 0.3, lift = 0.1, ph = r() * TAU, lg = 0.7;
       const W = (s) => { s = clamp(s, 0, 1); const q = (s * nTe + tph) % 1; return wid * Math.pow(Math.sin(Math.PI * Math.pow(s, 0.55)), 0.5) * (1 - 0.1 * q * sstep(0.06, 0.25, s)); };
       const P = (s, t) => { const lat = t * W(s), h = fold * Math.abs(lat) * (0.4 + Math.abs(t)) + lift * s * s * L + 0.008 * Math.sin(s * 14 + t * 4 + ph); for (let i = 0; i < 3; i++) Q[i] = O[i] + f[i] * s * L + sd[i] * lat + nn[i] * h; };
       const cVein = mix(C.leaf, C.stem, 0.3), cEdge = mix(C.leaf, WHITE, 0.6);
@@ -1004,7 +1006,7 @@ function GEN() {
 
     // ---- budget: dew is a fixed handful of strands, everything else is split by visible area
     const nDewS = Math.min(2 * nDew, b.S >> 4);
-    const [nPet, nSta, nSep, nStem, nRoot, nLeaf, nLoose] = alloc(b.S - nDewS, [0.54, 0.01, 0.17, 0.05, 0.018, nLeaves ? 0.1 : 0, 0.025]);
+    const [nPet, nSta, nSep, nStem, nRoot, nLeaf, nLoose] = alloc(b.S - nDewS, [0.55, 0.01, 0.17, 0.05, 0.018, nLeaves ? 0.1 : 0, 0.012]);
     const petals = ringP.concat(crownP), pw = petals.map((o) => o.wid * o.len * (o.ring == null ? 1 : o.ring < 2 ? 0.75 : 0.9));
     const nP = petals.length ? alloc(nPet, pw) : [], sepN = alloc(nSep + (petals.length ? 0 : nPet), sepP.map((o) => o.wid * o.len));
     b.part('petala');
