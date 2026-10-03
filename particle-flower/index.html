@@ -1079,7 +1079,7 @@ void main() {
   vec3 target = home.xyz;
   vec3 rel = home.xyz - uFocus;
   float near = smoothstep(1.3, 0.4, length(rel)), wb = home.w * near;
-  float open = smoothstep(0.0, 1.0, (since - 0.3 - 0.8 * smoothstep(0.55, 0.05, length(rel.xz))) / 1.8);
+  float open = smoothstep(0.0, 1.0, (since - 0.8 - 0.5 * smoothstep(0.55, 0.05, length(rel.xz))) / 1.7);
   float shut = (1.0 - open) * wb * uBreath;
   target.xz -= rel.xz * 0.75 * shut;
   target.y += shut * 0.25 * length(rel.xz);
@@ -1093,8 +1093,8 @@ void main() {
   // gust front: a band of moving air sweeps across the case, combing the plant over as it passes
   float gs = dot(home.xz, uGust.xy) - uGust.z;
   float gust = uGust.w * exp(-gs * gs * 8.0);
-  target.xz += uGust.xy * gust * h2 * (0.04 + 0.1 * home.w);
-  target.y -= gust * h2 * home.w * 0.02;
+  target.xz += uGust.xy * gust * (h + h2) * (0.035 + 0.075 * home.w);
+  target.y -= gust * (h + h2) * home.w * 0.012;
   // fine flutter: a wave runs along each fiber inside a slowly moving field of air, so neighbouring
   // particles move together and hairlines stay smooth instead of fraying into per-particle jitter
   float ph = hs * 40.0 + k * 0.55 - uTime * 2.2;
@@ -1105,8 +1105,8 @@ void main() {
                          sin(uTime * 0.47 + home.x * 1.7) * 0.09,
                          cos(uTime * 0.37 + home.z * 2.3) * 0.12);
 
-  // release groups: the whole piece follows one rigid path, then returns (unseen if it dissolved)
-  float flying = 0.0, unseen = 0.0;
+  // release groups: the whole piece follows one rigid path, then springs home (unseen, if it dissolved)
+  float flying = 0.0;
   if (aux.z > 0.5) {
     vec4 g0 = relGroup(aux.z, 0.0), g1 = relGroup(aux.z, 1.0), g2 = relGroup(aux.z, 2.0);
     float tau = uTime - g0.w;
@@ -1114,13 +1114,13 @@ void main() {
     if (tau > 0.0 && tau < T.w) {
       flying = 1.0;
       if (tau < T.x) target = relPath(home.xyz, g0, g1, g2, tau, T.x);
-      else unseen = step(T.y, tau);
     }
   }
 
   vec3 toHome = target - pos;
   float d = length(toHome);
-  vec3 acc = toHome * uSpring * (0.75 + 0.5 * hs) * (0.12 + 0.88 * act);
+  // a loose piece holds its path on a stiffer, better damped spring so it travels as one crisp body
+  vec3 acc = toHome * uSpring * (0.75 + 0.5 * hs) * (0.12 + 0.88 * act) * (1.0 + 3.0 * flying);
 
   // at rest the flow only breathes on flexy tips; it wakes when a particle is pushed off its mark
   float wait = 1.0 - act;
@@ -1142,14 +1142,14 @@ void main() {
   float f = uMouse * smoothstep(uMouseRadius, 0.0, r);
   acc += (off / (r + 1e-4)) * f * 10.0 + cross(uRayDir, off) * f * 18.0;
 
-  // click shockwave
+  // click shockwave: whole fibers are blown back like hair (one strength per strand, tips most)
   vec3 bd = pos - uBurst.xyz;
   float bl = length(bd);
-  vel += (bd / (bl + 1e-4)) * uBurst.w * exp(-bl * bl * 2.5) * (0.5 + hp);
+  vel += (bd / (bl + 1e-4)) * uBurst.w * exp(-bl * bl * 2.5) * (0.4 + 0.8 * hs + 0.2 * hp) * (0.7 + 0.5 * home.w);
 
   vel += acc * uDelta;
-  // ink is viscous; pieces returning unseen are damped near critically so they settle straight onto their marks
-  vel *= exp(-uDelta * uDamping * mix(0.45 + 0.55 * act, 1.0, wait * uInk) * (1.0 + 0.8 * unseen));
+  // ink is viscous; loose pieces are damped to match their stiffer spring, so they land without ringing
+  vel *= exp(-uDelta * uDamping * mix(0.45 + 0.55 * act, 1.0, wait * uInk) * (1.0 + flying));
   gl_FragColor = vec4(vel, 1.0);
 }
 `;
