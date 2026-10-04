@@ -435,10 +435,11 @@ const PRESETS = {
   },
   dandelion: {
     flower: 'dandelion', seed: 5,
-    bloom: { seeds: 220, radius: 0.44, spread: 0.9, pappus: 0.42, drifting: 9 },
-    palette: { seed: '#f2f5ff', achene: '#b98b4e', pappus: '#eef3ff', core: '#d8c49a', stem: '#9cc77e', leaf: '#5e9e48' },
-    stem: { length: 1.36, bend: 0.16, thickness: 0.016 },
-    leaves: { count: 5, length: 0.75 },
+    bloom: { seeds: 220, radius: 0.48, pappus: 0.26, spread: 1, blown: 50, drifting: 8 },
+    capitulum: { size: 0.3, bud: true },
+    palette: { pappus: '#eef3ff', beak: '#f4f1ea', achene: '#9a6b3a', receptacle: '#d8c49a', bract: '#5e9e48', floret: '#ffd23a', stem: '#9cc77e', leaf: '#5e9e48' },
+    stem: { length: 1.36, bend: 0.16, thickness: 0.018 },
+    leaves: { count: 7, length: 0.8, lobes: 4 },
     fiber: { fuzz: 0.3 },
   },
 };
@@ -2165,67 +2166,430 @@ function GEN() {
   }
 
   /* ---------------- 蒲公英 Taraxacum ---------------- */
+  // One rosette tells the whole life cycle: a golden capitulum, a head closed after flowering with
+  // its pappus just showing, and the clock itself, part blown, its parachutes drifting off across
+  // the case from the bald patch they left on the pitted receptacle.
   function dandelion(b, cfg) {
-    const r = b.r, g = b.g, bl = cfg.bloom || {}, pal = cfg.palette || {}, st = cfg.stem || {}, lv = cfg.leaves || {};
-    const Rs = num(bl.radius, 0.44, 0.15, 0.9), spread = num(bl.spread, 0.9, 0.1, 1.6), pl = num(bl.pappus, 0.42, 0.1, 1);
-    let M = Math.round(num(bl.seeds, 220, 12, 900)), D = Math.round(num(bl.drifting, 9, 0, 40));
-    const C = { seed: hex(pal.seed, '#f2f5ff'), achene: hex(pal.achene, '#b98b4e'), pappus: hex(pal.pappus, '#eef3ff'), core: hex(pal.core, '#d8c49a'), stem: hex(pal.stem, '#9cc77e'), leaf: hex(pal.leaf, '#5e9e48') };
-    const sLen = num(st.length, 1.36, 0.2, 1.75), bend = num(st.bend, 0.16, -0.6, 0.6), thick = num(st.thickness, 0.016, 0.004, 0.06);
-    const y0 = -1.32, top = [bend * 0.4, y0 + sLen, 0], stemAt = curve([0, y0, 0], top, bend * 0.25, 0), H = [top[0], top[1] + 0.03, 0];
+    const r = b.r, g = b.g, bl = cfg.bloom || {}, pal = cfg.palette || {}, st = cfg.stem || {}, lv = cfg.leaves || {}, cp = cfg.capitulum || {};
+    const Rs = num(bl.radius, 0.46, 0.2, 0.75), spread = num(bl.spread, 1, 0.3, 1.5), pl = num(bl.pappus, 0.4, 0.15, 0.7);
+    const blown = (num(bl.blown, 36, 0, 90) * Math.PI) / 180, fuzz = num((cfg.fiber || {}).fuzz, 0.3, 0, 2);
+    const C = {
+      pappus: hex(pal.pappus, '#eef3ff'), beak: hex(pal.beak, '#f4f1ea'), achene: hex(pal.achene, '#9a6b3a'), rec: hex(pal.receptacle, '#d8c49a'),
+      bract: hex(pal.bract, '#5e9e48'), floret: hex(pal.floret, '#ffd23a'), stem: hex(pal.stem, '#9cc77e'), leaf: hex(pal.leaf, '#5e9e48'),
+    };
+    C.spine = mix(C.achene, C.rec, 0.45); C.flush = [0.36, 0.07, 0.2]; C.orange = mix(C.floret, [1, 0.32, 0.02], 0.55);
+    C.bractTip = mix(C.bract, C.flush, 0.6); C.stemBot = mix(C.stem, C.flush, 0.55);
+    const sLen = num(st.length, 1.36, 0.6, 1.7), bend = num(st.bend, 0.16, -0.5, 0.5), thick = num(st.thickness, 0.018, 0.006, 0.05);
+    const y0 = -1.34, top = [bend * 0.4, y0 + sLen, 0], stemAt = curve([0, y0, 0], top, bend * 0.25, 0), H = [top[0], top[1] + 0.03, 0];
     b.focus = H.slice();
-    const nLeaves = Math.round(num(lv.count, 5, 0, 12));
-    const [nStem, nLeaf, nCore, nSeeds] = alloc(b.S, [0.04, nLeaves ? 0.12 : 0, 0.01, 0.83]);
-    M = Math.min(M, Math.floor(nSeeds / 4)); D = Math.min(D, Math.floor(nSeeds / 40));
-    b.part('scapus'); stemFibers(b, { at: stemAt, thick, cBot: scale(C.stem, 0.6), cTop: C.stem, gain: 0.6, span: 0.3, size: 0.7 }, nStem);
-    b.part('folium');
-    const ln = alloc(nLeaf, Array.from({ length: nLeaves }, () => 1)), lenL = num(lv.length, 0.75, 0.1, 1.4);
-    for (let i = 0; i < nLeaves; i++) {
-      const yaw = (i / nLeaves) * TAU + r() * 0.5, pitch = 0.18 + r() * 0.22;
-      leafStrands(b, { A: [Math.cos(yaw) * 0.03, y0, Math.sin(yaw) * 0.03], f: [Math.cos(yaw) * Math.cos(pitch), Math.sin(pitch), Math.sin(yaw) * Math.cos(pitch)], len: lenL * (0.75 + r() * 0.35), wid: lenL * 0.16, droop: 0.55, fold: 0.25, sp: 1.6, teeth: 0.9, lobes: 6, wave: 0.4, cMid: C.leaf, cEdge: scale(C.leaf, 0.8), cVein: mix(C.leaf, WHITE, 0.35), gain: 0.5, line: 0.45 }, ln[i]);
-    }
-    b.part('receptaculum');
-    for (let i = 0; i < nCore; i++) {
-      const d = norm([g(), Math.abs(g()) + 0.2, g()]);
-      for (let k = 0; k < K; k++) { const q = 0.03 + 0.03 * (k / (K - 1)); b.pt(k, H[0] + d[0] * q, H[1] + d[1] * q - 0.01, H[2] + d[2] * q, C.core, 0.8, 0.8, 0, 0.3, 0); }
-      b.end();
-    }
-    // seed directions: Fibonacci sphere with the stem-side cap removed
-    const dirs = [], T = Math.round(M / 0.86) + 2;
-    for (let i = 0; i < T && dirs.length < M; i++) {
-      const y = 1 - (2 * (i + 0.5)) / T;
-      if (y < -0.72) continue;
-      const rho = Math.sqrt(1 - y * y), a = i * GA;
-      dirs.push(norm([Math.cos(a) * rho + g() * 0.04, y + g() * 0.04, Math.sin(a) * rho + g() * 0.04]));
-    }
-    const seeds = dirs.map((d) => ({ d, tip: [H[0] + d[0] * Rs * 0.93, H[1] + d[1] * Rs * 0.93, H[2] + d[2] * Rs * 0.93], base: [H[0] + d[0] * 0.05, H[1] + d[1] * 0.05, H[2] + d[2] * 0.05], drift: 0, sc: 1 }));
-    for (let i = 0; i < D; i++) {
-      const d = norm([0.3 + (r() - 0.5) * 0.7, 1, (r() - 0.5) * 0.7]);
-      const Q = [clamp(H[0] + 0.45 + i * 0.11 + r() * 0.12, -1.45, 1.45), clamp(H[1] + 0.15 + i * 0.1 + (r() - 0.5) * 0.3, -1.2, 1.45), clamp((r() - 0.5) * 1.4, -1.4, 1.4)];
-      seeds.push({ d, tip: Q, base: [Q[0] - d[0] * Rs * 0.62, Q[1] - d[1] * Rs * 0.62, Q[2] - d[2] * Rs * 0.62], drift: 1, sc: 0.9 });
-    }
-    const all = seeds.length, P = Math.max(1, Math.floor((nSeeds - all) / all));
-    let extra = nSeeds - all - P * all;
-    b.part('pappus');
-    seeds.forEach((sd) => {
-      const bright = 0.75 + r() * 0.4, bendV = [g() * 0.02, g() * 0.02, g() * 0.02];
-      for (let k = 0; k < K; k++) {
-        const t = k / (K - 1), s = Math.sin(Math.PI * t);
-        const c = t < 0.28 ? C.achene : C.seed;
-        b.pt(k, lerp(sd.base[0], sd.tip[0], t) + bendV[0] * s, lerp(sd.base[1], sd.tip[1], t) + bendV[1] * s, lerp(sd.base[2], sd.tip[2], t) + bendV[2] * s, c, (t < 0.28 ? 0.9 : 0.42) * bright, t < 0.28 ? 0.9 : 0.5, t * 0.3, 0.8, sd.drift);
-      }
-      b.end();
-      let u1 = cross(sd.d, [0.31, 0.95, 0.07]);
-      if (Math.hypot(u1[0], u1[1], u1[2]) < 1e-3) u1 = cross(sd.d, [1, 0, 0]);
-      u1 = norm(u1);
-      const u2 = cross(sd.d, u1), count = P + (extra-- > 0 ? 1 : 0);
-      for (let j = 0; j < count; j++) {
-        const beta = ((j + r()) / count) * TAU, alpha = spread * (0.75 + 0.25 * r()), lp = Rs * pl * (0.85 + 0.3 * r()) * sd.sc, cb = Math.cos(beta), sb = Math.sin(beta), fb = 0.65 + r() * 0.45;
+    // every point passes the case walls and the floor (leaves and a landed seed lie on it)
+    const pt = (k, x, y, z, c, gain, size, flex, line, drift) => b.pt(k, clamp(x, -1.43, 1.43), clamp(y, -1.435, 1.43), clamp(z, -1.43, 1.43), c, gain, size, flex, line, drift);
+    const add = (p, v, s) => [p[0] + v[0] * s, p[1] + v[1] * s, p[2] + v[2] * s];
+    const dot = (a, c) => a[0] * c[0] + a[1] * c[1] + a[2] * c[2];
+    const frame = (a) => { const u = norm(cross(a, Math.abs(a[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0])); return [u, cross(a, u)]; };
+    const cub = (p0, p1, p2, p3) => (t) => { const s = 1 - t, A = s * s * s, B = 3 * s * s * t, Cc = 3 * s * t * t, Dd = t * t * t; return [0, 1, 2].map((i) => p0[i] * A + p1[i] * B + p2[i] * Cc + p3[i] * Dd); };
+    const tmp3 = [0, 0, 0];
+
+    // Hollow scape: fibres run on the tube wall only, so the silhouette edges read denser than the
+    // middle, like a translucent straw; flushed purple at the base, cobweb hairs under the head.
+    function tube(at, rad0, rad1, count, gain) {
+      const nHair = Math.round(count * 0.08);
+      for (let i = 0; i < count; i++) {
+        const hair = i < nHair, a = r() * TAU, span = hair ? 0.035 : 0.22 + 0.1 * r(), t0 = hair ? 0.8 + r() * 0.18 : r() * (1 - span), tw = (r() - 0.5) * 0.7, wall = 0.93 + 0.07 * r(), bright = 0.7 + 0.5 * r();
+        const ha = r() * TAU, hl = 0.012 + 0.02 * r();
         for (let k = 0; k < K; k++) {
-          const t = k / (K - 1), a = alpha * (0.35 + 0.65 * Math.pow(t, 0.7)), ca = Math.cos(a) * lp * t, sa = Math.sin(a) * lp * t;
-          b.pt(k, sd.tip[0] + sd.d[0] * ca + (u1[0] * cb + u2[0] * sb) * sa, sd.tip[1] + sd.d[1] * ca + (u1[1] * cb + u2[1] * sb) * sa, sd.tip[2] + sd.d[2] * ca + (u1[2] * cb + u2[2] * sb) * sa, C.pappus, 0.3 * fb * (t > 0.9 ? 1.6 : 1), t > 0.9 ? 0.75 : 0.5, 0.3 + t * 0.7, 0.85, sd.drift);
+          const q = k / (K - 1), t = t0 + span * q, p = at(t), p1 = at(Math.min(1, t + 0.01)), p0 = at(Math.max(0, t - 0.01));
+          const T = norm([p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]]), [u, w] = frame(T), ang = a + tw * t;
+          let rr = lerp(rad0, rad1, t) * wall, c = mix(C.stemBot, C.stem, sstep(0, 0.45, t)), gn = gain * bright * (0.75 + 0.25 * t);
+          if (hair) { rr += hl * q; c = mix(C.stem, WHITE, 0.6); gn = gain * 0.5 * (1 - q * 0.6); }
+          const ca = Math.cos(hair ? ang + ha * q * 0.3 : ang), sa = Math.sin(hair ? ang + ha * q * 0.3 : ang);
+          pt(k, p[0] + (u[0] * ca + w[0] * sa) * rr, p[1] + (u[1] * ca + w[1] * sa) * rr, p[2] + (u[2] * ca + w[2] * sa) * rr, c, gn, hair ? 0.4 : 0.62, t * 0.15, hair ? 0.5 : 0.62, 0);
         }
         b.end();
       }
+    }
+
+    // A strap (ligule or bract) on a head with centre F, axis n and disc frame e1/e2: it leaves the
+    // disc at radius r0, elevation el0 (radians above the disc plane) and bends to el1 at its tip.
+    // o.teeth notches a five-toothed apex, closed by one strand that zigzags across it.
+    const cl = new Float32Array(K * 3);
+    function strap(F, n, e1, e2, az, o, nl) {
+      const ca = Math.cos(az), sa = Math.sin(az), rd = [0, 1, 2].map((i) => e1[i] * ca + e2[i] * sa), lt = [0, 1, 2].map((i) => e2[i] * ca - e1[i] * sa);
+      let x = o.r0, y = o.h0;
+      const ds = o.len / (K - 1);
+      for (let k = 0; k < K; k++) {
+        const el = lerp(o.el0, o.el1, Math.pow(k / (K - 1), o.bend || 1));
+        if (k) { x += Math.cos(el) * ds; y += Math.sin(el) * ds; }
+        cl[k * 3] = x; cl[k * 3 + 1] = y; cl[k * 3 + 2] = el;
+      }
+      const tw = o.twist || 0;
+      const at = (t, v, out) => {
+        const f = clamp(t, 0, 1) * (K - 1), i = Math.min(K - 2, f | 0), q = f - i;
+        const X = lerp(cl[i * 3], cl[i * 3 + 3], q), Y = lerp(cl[i * 3 + 1], cl[i * 3 + 4], q), el = lerp(cl[i * 3 + 2], cl[i * 3 + 5], q);
+        const w = o.wid * (o.pointed ? Math.pow(Math.sin(Math.PI * Math.min(1, 0.1 + t * 0.9)), 0.75) : 0.38 + 0.62 * sstep(0, 0.22, t));
+        const lat = v * w * Math.cos(tw * t), off = (o.cup || 0) * w * (v * v - 0.35) + v * w * Math.sin(tw * t);
+        const X2 = X - Math.sin(el) * off, Y2 = Y + Math.cos(el) * off;
+        for (let j = 0; j < 3; j++) out[j] = F[j] + rd[j] * X2 + n[j] * Y2 + lt[j] * lat;
+      };
+      const tooth = (v) => (o.teeth ? 1 - o.teeth * Math.pow(Math.abs(Math.cos(Math.PI * (v + 1) * 2.5)), 1.4) : 1);
+      for (let j = 0; j < nl; j++) {
+        const v = nl === 1 ? 0 : clamp(-0.82 + (1.64 * j) / (nl - 1) + (r() - 0.5) * 0.12, -0.95, 0.95), bright = 0.75 + 0.45 * r(), te = tooth(v), rim = sstep(0.55, 0.95, Math.abs(v));
+        for (let k = 0; k < K; k++) {
+          const t = (k / (K - 1)) * te;
+          at(t, v, tmp3);
+          let c = mix(o.cBase, o.cMid, sstep(0, 0.3, t));
+          c = mix(c, o.cTip, o.tipAmt * sstep(0.7, 1, t));
+          const j2 = fuzz * 0.0012;
+          pt(k, tmp3[0] + g() * j2, tmp3[1] + g() * j2, tmp3[2] + g() * j2, c, o.gain * bright * (0.35 + 0.65 * sstep(0, 0.25, t)) * (1 + 0.35 * rim), o.size * (0.75 + 0.4 * r()) * (k === K - 1 ? 1.25 : 1), o.flex * t, o.line, 0);
+        }
+        b.end();
+      }
+      if (o.teeth) {
+        for (let k = 0; k < K; k++) {
+          const v = -1 + (2 * k) / (K - 1);
+          at(tooth(v), v * 0.98, tmp3);
+          pt(k, tmp3[0], tmp3[1], tmp3[2], mix(o.cMid, o.cTip, 0.6), o.gain * 1.1, o.size * 0.8, o.flex, o.line, 0);
+        }
+        b.end();
+      }
+      return nl + (o.teeth ? 1 : 0);
+    }
+
+    // Runcinate leaf: deep lobes whose points sweep back toward the rosette, a pale midrib flushed
+    // purple at its base, veins fanning from the midrib into each lobe, and a fine-toothed margin.
+    function leaf(o, count) {
+      const L = o.len, W = o.wid, nl = o.lobes, f = [Math.cos(o.yaw), 0, Math.sin(o.yaw)], sd = [-Math.sin(o.yaw), 0, Math.cos(o.yaw)];
+      const P = (u, v, out) => {
+        const av = Math.abs(v) / W;
+        let h = L * (o.rise * u - o.fall * u * u) + o.fold * Math.abs(v) + (o.wave * W * 0.5 * Math.sin(u * 17 + o.ph) * av * av);
+        h += o.roll * v * u;
+        out[0] = o.A[0] + f[0] * u * L + sd[0] * v; out[1] = o.A[1] + h; out[2] = o.A[2] + f[2] * u * L + sd[2] * v;
+      };
+      // margin per side as a dense polyline [u, v, root u]
+      const sides = [-1, 1].map((sg) => {
+        const m = [], push = (u, v, root) => m.push([u, sg * v, root]);
+        const edge = (a, c, ra, rc, n, teeth) => {
+          for (let i = 0; i < n; i++) {
+            const q = i / n, tq = teeth ? Math.pow((q * teeth) % 1, 1.6) * 0.018 * L : 0;
+            push(lerp(a[0], c[0], q), Math.max(0.004, lerp(a[1], c[1], q) + tq - (teeth ? 0.009 * L : 0) * Math.sin(Math.PI * q)), lerp(ra, rc, q));
+          }
+        };
+        const u0 = 0.12, uT = 0.72, sh = sg > 0 ? 0 : 0.42 / nl;
+        const us = (j) => u0 + ((uT - u0) * (j + sh)) / nl;
+        edge([0, 0.006], [us(0), W * 0.14], 0, us(0) * 0.8, 8, 0);
+        for (let j = 0; j < nl; j++) {
+          const s0 = us(j), s1 = j + 1 < nl ? us(j + 1) : uT, wv = W * (0.5 + (0.5 * (j + 1)) / nl) * (0.88 + 0.24 * r()), back = 0.03 + 0.025 * r();
+          const sin0 = [s0, W * (0.12 + 0.08 * (j / nl))], apex = [s0 - back, wv], sin1 = [s1, W * (0.12 + 0.08 * ((j + 1) / nl))];
+          edge(sin0, apex, s0 + 0.02, s0 + 0.045, 5, 0);
+          edge(apex, sin1, s0 + 0.05, s1 - 0.006, 12, 3);
+        }
+        // terminal lobe: hastate shoulders, then a toothed edge to the apex
+        const sT = [uT, W * 0.22], sh2 = [uT - 0.015, W * 0.8], tip = [1, 0];
+        edge(sT, sh2, uT + 0.02, uT + 0.06, 5, 0);
+        edge(sh2, tip, uT + 0.07, 0.995, 16, 4);
+        push(1, 0, 1);
+        return m;
+      });
+      const cum = sides.map((m) => { const c = [0]; for (let i = 1; i < m.length; i++) c.push(c[i - 1] + Math.hypot((m[i][0] - m[i - 1][0]) * L, m[i][1] - m[i - 1][1])); return c; });
+      const along = (si, s, out) => {
+        const m = sides[si], c = cum[si];
+        let i = 1;
+        while (i < c.length - 1 && c[i] < s) i++;
+        const q = clamp((s - c[i - 1]) / Math.max(1e-6, c[i] - c[i - 1]), 0, 1);
+        out[0] = lerp(m[i - 1][0], m[i][0], q); out[1] = lerp(m[i - 1][1], m[i][1], q); out[2] = lerp(m[i - 1][2], m[i][2], q);
+      };
+      const [nMid, nEdge, nVein] = alloc(count, [0.07, 0.2, 0.73]), e = [0, 0, 0];
+      for (let i = 0; i < nMid; i++) {
+        const s0 = (i / nMid) * 0.74 + r() * 0.03, bright = 0.8 + 0.4 * r(), side = (r() - 0.5) * 0.008;
+        for (let k = 0; k < K; k++) {
+          const u = s0 + (0.26 * k) / (K - 1);
+          P(u, side * (1 - u), tmp3);
+          pt(k, tmp3[0], tmp3[1] + 0.003, tmp3[2], mix(C.flush, mix(C.leaf, WHITE, 0.3), sstep(0.04, 0.4, u)), 0.5 * bright * o.gain, 0.8, 0.12 * u * u, 0.6, 0);
+        }
+        b.end();
+      }
+      for (let i = 0; i < nEdge; i++) {
+        const si = i & 1, len = cum[si][cum[si].length - 1], s0 = r() * len * 0.94, span = 0.05 + 0.04 * r(), bright = 0.8 + 0.4 * r();
+        for (let k = 0; k < K; k++) {
+          along(si, Math.min(len, s0 + (span * k) / (K - 1)), e);
+          P(e[0], e[1] * 0.995, tmp3);
+          pt(k, tmp3[0] + g() * 0.0015, tmp3[1] + g() * 0.0015, tmp3[2] + g() * 0.0015, mix(C.leaf, [0.85, 1, 0.65], 0.3), 0.85 * bright * o.gain, 0.62, 0.12 * e[0] * e[0], 0.55, 0);
+        }
+        b.end();
+      }
+      let dew = o.dew;
+      for (let i = 0; i < nVein; i++) {
+        const si = i & 1, len = cum[si][cum[si].length - 1], bright = 0.65 + 0.5 * r(), reach = 0.55 + 0.45 * Math.sqrt(r());
+        along(si, r() * len, e);
+        const ru = e[2], eu = e[0], ev = e[1] * reach * (0.96 + 0.03 * r()), cu = lerp(ru, eu, 0.25), cv = ev * 0.55;
+        for (let k = 0; k < K; k++) {
+          const t = k / (K - 1), a = (1 - t) * (1 - t), bb = 2 * (1 - t) * t, cc = t * t;
+          const u = a * ru + bb * cu + cc * eu, v = bb * cv + cc * ev;
+          P(u, v, tmp3);
+          const c = mix(mix(C.leaf, WHITE, 0.3), C.leaf, sstep(0, 0.3, t));
+          pt(k, tmp3[0] + g() * 0.0025, tmp3[1] + g() * 0.0025, tmp3[2] + g() * 0.0025, mix(c, mix(C.leaf, [0.8, 1, 0.5], 0.4), sstep(0.8, 1, t) * 0.5), 0.95 * bright * o.gain * (0.6 + 0.4 * t), 0.6 * (0.7 + 0.6 * r()), 0.12 * u * u, 0.5, 0);
+        }
+        b.end();
+        // a dew drop hangs at one lobe point
+        if (dew > 0 && reach > 0.97 && eu > 0.3 && eu < 0.7) { b.tag(b.s - 1, b.s, null, 0.75); dew--; }
+      }
+    }
+
+    // --- seeds --------------------------------------------------------------------------
+    // ribbed achene: three ribs that break into tiny spinules toward the apex
+    function achene(S0, d, u, w, La, aw, drift, boost = 1) {
+      const ph = r() * TAU;
+      for (let i = 0; i < 3; i++) {
+        const bright = 0.8 + 0.4 * r();
+        for (let k = 0; k < K; k++) {
+          const t = k / (K - 1), spine = k >= 8 && k <= 13 && (k & 1) ? 1 : 0, psi = ph + (i * TAU) / 3 + 0.3 * t;
+          const rad = aw * Math.pow(Math.sin(Math.PI * (0.06 + 0.86 * t)), 0.6) * (1 + spine * 1.5), ax = La * t + spine * aw * 0.9;
+          const cs = Math.cos(psi), sn = Math.sin(psi);
+          pt(k, S0[0] + d[0] * ax + (u[0] * cs + w[0] * sn) * rad, S0[1] + d[1] * ax + (u[1] * cs + w[1] * sn) * rad, S0[2] + d[2] * ax + (u[2] * cs + w[2] * sn) * rad,
+            spine ? C.spine : C.achene, (spine ? 0.42 : 0.32) * bright * boost, spine ? 0.38 : 0.55, 0.05 + 0.1 * t, 0.7, drift);
+        }
+        b.end();
+      }
+    }
+    // slender beak (rostrum) from the achene apex to the pappus
+    function beak(A0, A1, bow, drift, boost = 1) {
+      const bright = 0.8 + 0.4 * r();
+      for (let k = 0; k < K; k++) {
+        const t = k / (K - 1), s = Math.sin(Math.PI * t);
+        pt(k, lerp(A0[0], A1[0], t) + bow[0] * s, lerp(A0[1], A1[1], t) + bow[1] * s, lerp(A0[2], A1[2], t) + bow[2] * s,
+          mix(C.spine, C.beak, sstep(0, 0.15, t)), 0.2 * bright * boost * (k === K - 1 ? 1.6 : 1), k === K - 1 ? 0.6 : 0.4, 0.04 + 0.08 * t, 0.8, drift);
+      }
+      b.end();
+    }
+    // pappus: a flat-topped parachute. Each bristle rises a little off the beak, splays almost flat,
+    // then lifts its tip, which carries one bead.
+    function pappus(O, d, u, w, count, Lp, drift, glint) {
+      const ph = r() * TAU;
+      for (let j = 0; j < count; j++) {
+        const b0 = ph + ((j + 0.5 + (r() - 0.5) * 0.7) / count) * TAU, len = Lp * (0.82 + 0.3 * r()), ds = len / (K - 1);
+        const a0 = 0.08 + 0.12 * r(), a1 = spread * (1.3 + 0.22 * (r() - 0.5)), lift = 0.1 + 0.14 * r(), cb = (r() - 0.5) * 0.45, bright = 0.7 + 0.5 * r();
+        let x = O[0], y = O[1], z = O[2];
+        for (let k = 0; k < K; k++) {
+          const t = k / (K - 1);
+          if (k) {
+            const a = a0 + (a1 - a0) * (1 - Math.pow(1 - Math.min(1, t / 0.4), 2)) - lift * sstep(0.6, 1, t), be = b0 + cb * t;
+            const ca = Math.cos(a), sa = Math.sin(a), cB = Math.cos(be), sB = Math.sin(be);
+            x += (d[0] * ca + (u[0] * cB + w[0] * sB) * sa) * ds; y += (d[1] * ca + (u[1] * cB + w[1] * sB) * sa) * ds; z += (d[2] * ca + (u[2] * cB + w[2] * sB) * sa) * ds;
+          }
+          // brightest where the bristles leave the beak, fading outward: each parachute reads as a soft star
+          const tip = k === K - 1, jt = 0.0014 * t * (0.5 + fuzz), fade = (0.06 + 0.94 * sstep(0.02, 0.2, t)) * (1 - 0.55 * sstep(0.3, 1, t));
+          pt(k, x + g() * jt, y + g() * jt, z + g() * jt, C.pappus, 0.36 * bright * fade * (tip ? 2.4 : 1), tip ? 0.95 : 0.42, 0.05 + 0.25 * t * t, 0.85, drift);
+        }
+        b.end();
+        if (r() < glint) b.tag(b.s - 1, b.s, null, 0.15 + 0.12 * r());
+      }
+    }
+    // one whole diaspore (achene + beak + pappus) along axis d, pappus at O
+    function diaspore(O, d, Lb, La, Bn, drift) {
+      const [u, w] = frame(d), A1 = add(O, d, -Lb), S0 = add(A1, d, -La), bow = scale(u, Lb * 0.03 * (r() - 0.5));
+      // a lone seed against the dark needs a stronger achene and beak than one inside the clock
+      achene(S0, d, u, w, La, 0.0065 * (Rs / 0.46), drift, 2.6);
+      beak(A1, O, bow, drift, 2);
+      pappus(O, d, u, w, Bn, Rs * pl, drift, 0.025);
+    }
+
+    // --- budget ------------------------------------------------------------------------------
+    const nLeaves = Math.round(num(lv.count, 7, 0, 12)), Rf = num(cp.size, 0.27, 0, 0.42), showBud = cp.bud !== false;
+    const [nLeaf, nScape, nInv, nRec, nCap, nBud, nSeed] = alloc(b.S, [nLeaves ? 0.14 : 0, 0.035, 0.012, 0.014, Rf > 0 ? 0.09 : 0, showBud ? 0.016 : 0, 0.69]);
+
+    // seed positions: a Fibonacci sphere without the stem-side cap; a cap on the windward side is
+    // already blown, leaving its pits bare (with a ragged rim)
+    let M = Math.round(num(bl.seeds, 220, 12, 900)), D = Math.round(num(bl.drifting, 8, 0, 24));
+    M = Math.min(M, Math.floor(nSeed / 16)); D = Math.min(D, Math.floor(M / 10));
+    const G = norm([0.75, 0.58, -0.32]), cg = Math.cos(blown), cg2 = Math.cos(blown + 0.15), rd = 0.17 * Rs;
+    const pos = [], T = Math.round(M / 0.86) + 2;
+    for (let i = 0; i < T && pos.length < M; i++) {
+      const yy = 1 - (2 * (i + 0.5)) / T;
+      if (yy < -0.72) continue;
+      const rho = Math.sqrt(1 - yy * yy), a = i * GA, d = norm([Math.cos(a) * rho + g() * 0.025, yy + g() * 0.025, Math.sin(a) * rho + g() * 0.025]), dg = dot(d, G);
+      pos.push({ d, dg, gone: blown > 0 && (dg > cg || (dg > cg2 && r() < 0.4)), at: [H[0] + d[0] * rd, H[1] + d[1] * rd * 0.7, H[2] + d[2] * rd] });
+    }
+    const head = pos.filter((p) => !p.gone).sort((p, q) => q.dg - p.dg), bare = pos.filter((p) => p.gone);
+    // seeds on the rim of the bald patch are working loose: tilted downwind, lifted out of their pits
+    const loose = head.filter((p) => blown > 0 && p.dg > Math.cos(blown + 0.3) && r() < 0.55);
+    loose.forEach((p) => { p.pit = p.at; p.pd = p.d; p.d = norm(add(p.d, G, 0.22 + 0.22 * r())); p.at = add(p.pit, p.d, 0.01 + 0.02 * r()); });
+    const pits = bare.concat(loose);
+    const Dn = D + (D > 0 ? 1 : 0), Mh = head.length;
+    const B = Math.max(4, Math.floor((nSeed - 4 * (Mh + Dn)) / (Mh + 1.4 * Dn))), Bf = Math.floor(B * 1.4);
+    const La = 0.15 * Rs, Lb = 0.76 * Rs - rd - La;
+
+    // --- leaves: a rosette of runcinate leaves, the older ones lying on the floor ---------------------
+    b.part('folium');
+    if (nLeaves) {
+      const lenL = num(lv.length, 0.8, 0.2, 1.2), lobes = Math.round(num(lv.lobes, 4, 1, 7)), ls = [];
+      for (let i = 0; i < nLeaves; i++) {
+        const young = i % 3 === 2, L = lenL * (young ? 0.62 + 0.15 * r() : 0.82 + 0.25 * r());
+        ls.push({ A: [Math.cos(i * 2.4) * 0.02, y0 + 0.012, Math.sin(i * 2.4) * 0.02], yaw: i * 2.4 + 0.5 + (r() - 0.5) * 0.3, len: L, wid: L * (0.16 + 0.03 * r()), lobes: Math.max(1, lobes - (young ? 1 : 0)),
+          rise: young ? 0.95 : 0.55 + 0.25 * r(), fall: 0.7, fold: 0.22, wave: 0.5, roll: (r() - 0.5) * 0.12, ph: r() * TAU, gain: 1, dew: i < 2 ? 1 : 0 });
+      }
+      const nl = alloc(nLeaf, ls.map((o) => o.len * o.len));
+      ls.forEach((o, i) => leaf(o, nl[i]));
+    }
+
+    // --- scape and involucre of the clock ---------------------------------------------------------------
+    b.part('scapus');
+    tube(stemAt, thick, thick * 0.78, nScape - (Rf > 0 ? Math.round(nScape * 0.3) : 0) - (showBud ? Math.round(nScape * 0.2) : 0), 0.5);
+    b.part('involucrum');
+    {
+      // reflexed bracts hang down around the top of the scape, tips flushed purple
+      const nb = 16, per = Math.max(1, Math.floor(nInv / nb)), F = [H[0], H[1] - rd * 0.55, H[2]];
+      let used = 0;
+      for (let j = 0; j < nb; j++) {
+        const outer = j % 2 === 0, nlj = j === nb - 1 ? nInv - used : per;
+        if (nlj <= 0) continue;
+        used += strap(F, [0, 1, 0], [1, 0, 0], [0, 0, 1], (j / nb) * TAU + r() * 0.2, {
+          r0: rd * (outer ? 0.55 : 0.4), h0: 0, len: (outer ? 0.15 : 0.12) * (Rs / 0.46) * (0.88 + 0.24 * r()), wid: outer ? 0.017 : 0.013, el0: outer ? -0.55 : -0.85, el1: outer ? -1.25 : -1.45, bend: 0.8,
+          cup: 0.5, pointed: true, twist: (r() - 0.5) * 0.8, cBase: C.stem, cMid: C.bract, cTip: C.bractTip, tipAmt: 0.85, gain: 0.42, size: 0.6, flex: 0.05, line: 0.55,
+        }, nlj);
+      }
+    }
+
+    // --- receptacle: a pale dome, its pits bare where the seeds have gone -------------------------------
+    b.part('receptaculum');
+    {
+      const nPit = Math.min(pits.length, Math.floor(nRec * 0.5)), nSkin = nRec - nPit, dome = (d, out) => { out[0] = H[0] + d[0] * rd; out[1] = H[1] + d[1] * rd * 0.7; out[2] = H[2] + d[2] * rd; };
+      for (let i = 0; i < nPit; i++) {
+        const p = pits[i], c0 = p.pit || p.at, [u, w] = frame(p.pd || p.d), pr = 0.42 * rd * Math.sqrt(4 / (M * 0.86)), bright = 0.8 + 0.4 * r();
+        for (let k = 0; k < K; k++) {
+          const a = (k / (K - 1)) * TAU, cs = Math.cos(a) * pr, sn = Math.sin(a) * pr;
+          pt(k, c0[0] + u[0] * cs + w[0] * sn, c0[1] + (u[1] * cs + w[1] * sn) * 0.7, c0[2] + u[2] * cs + w[2] * sn, mix(C.rec, C.achene, 0.35), 0.5 * bright, 0.5, 0, 0.55, 0);
+        }
+        b.end();
+      }
+      for (let i = 0; i < nSkin; i++) {
+        // short arcs over the dome, crowded toward the bare patch so it reads as a surface
+        const q = i % 2 ? norm([G[0] + g() * 0.6, G[1] + g() * 0.6, G[2] + g() * 0.6]) : norm([g(), Math.abs(g()) + 0.15, g()]), [u, w] = frame(q), a = r() * TAU, tdir = add(scale(u, Math.cos(a)), w, Math.sin(a)), bright = 0.6 + 0.5 * r();
+        for (let k = 0; k < K; k++) {
+          const s = (k / (K - 1)) * 0.45, d = norm(add(scale(q, Math.cos(s)), tdir, Math.sin(s)));
+          dome(d, tmp3);
+          pt(k, tmp3[0], tmp3[1], tmp3[2], C.rec, 0.17 * bright * (i % 2 ? 2 : 1), 0.5, 0, 0.45, 0);
+        }
+        b.end();
+      }
+    }
+
+    // --- the golden capitulum on a second, shorter scape leaning the other way ------------------------------
+    if (nCap) {
+      const F = [-0.6, -0.46, 0.42], nf = norm([0.12, 0.81, 0.57]), [e1, e2] = frame(nf);
+      const nCs = Math.round(nScape * 0.3);
+      b.part('scapus');
+      tube(cub([-0.02, y0, 0.03], [-0.04, y0 + 0.4, 0.06], add(F, nf, -0.42), add(F, nf, -0.03)), thick * 0.8, thick * 0.7, nCs, 0.5);
+      b.part('capitulum');
+      const [nCInv, nLig] = alloc(nCap, [0.12, 0.88]);
+      // involucre: inner bracts cup the florets, the outer ones turn down
+      const nbr = 14, per = Math.max(1, Math.floor(nCInv / nbr));
+      let used = 0;
+      for (let j = 0; j < nbr; j++) {
+        const outer = j < 6, nlj = j === nbr - 1 ? nCInv - used : per;
+        if (nlj <= 0) continue;
+        used += strap(add(F, nf, -0.03), nf, e1, e2, (j / nbr) * TAU * (outer ? 1 : 1.03) + r() * 0.3, {
+          r0: Rf * 0.12, h0: 0, len: Rf * (outer ? 0.32 : 0.3) * (0.85 + 0.3 * r()), wid: Rf * 0.05, el0: outer ? -0.3 : 1.1, el1: outer ? -1.1 : 0.85, bend: 1,
+          cup: 0.5, pointed: true, twist: (r() - 0.5) * 0.6, cBase: C.stem, cMid: C.bract, cTip: C.bractTip, tipAmt: 0.6, gain: 0.32, size: 0.6, flex: 0.05, line: 0.55,
+        }, nlj);
+      }
+      // ligulate florets in a phyllotactic spiral: outer straps long and spreading, inner ones short,
+      // erect and orange, the heart still curled in bud
+      const spl = (q) => 1 + (q > 0.72 ? 7 : q > 0.42 ? 5 : 3), need = (n) => { let s = 0; for (let i = 0; i < n; i++) s += spl(Math.sqrt((i + 0.5) / n)); return s; };
+      let NL = Math.max(12, Math.round((nLig * 0.88) / 6.3));
+      while (NL > 12 && need(NL) > nLig * 0.88) NL--;
+      const lig = Math.min(nLig, need(NL)), nSty = nLig - lig, ph = r() * TAU, cTube = mix(C.floret, [0.55, 0.75, 0.25], 0.55);
+      let usedL = 0;
+      for (let i = NL - 1; i >= 0 && usedL < lig; i--) {
+        const q = Math.sqrt((i + 0.5) / NL), q2 = q * q;
+        usedL += strap(F, nf, e1, e2, i * GA + ph, {
+          r0: Rf * 0.14 * q, h0: Rf * 0.05 * (1 - q2), len: Rf * (0.2 + 0.62 * Math.pow(q, 1.3)) * (0.88 + 0.24 * r()), wid: Rf * (0.03 + 0.05 * q), el0: lerp(1.45, 0.42, Math.pow(q, 0.8)), el1: q < 0.3 ? 1.9 : lerp(1.4, -0.14, Math.pow(q, 1.1)) + (r() - 0.5) * 0.35, bend: 0.8,
+          cup: 0.35, twist: (r() - 0.5) * 1.1, teeth: q > 0.3 ? 0.08 : 0, cBase: cTube, cMid: mix(C.floret, C.orange, Math.pow(1 - q, 1.5) * 0.8), cTip: mix(C.floret, WHITE, 0.25), tipAmt: 0.35 * q,
+          gain: 0.78 * (0.8 + 0.3 * q), size: 0.62, flex: 0.06, line: 0.55,
+        }, Math.min(spl(q) - 1, lig - usedL - (q > 0.3 ? 1 : 0)));
+      }
+      // styles: dark-gold threads standing out of the inner florets, each forked into two curls
+      for (let i = 0; i < nSty + (lig - usedL); i++) {
+        const q = 0.12 + 0.55 * Math.sqrt(r()), az = r() * TAU, ca = Math.cos(az), sa = Math.sin(az), rdir = [0, 1, 2].map((j) => e1[j] * ca + e2[j] * sa);
+        const base = add(add(F, rdir, Rf * 0.14 * q), nf, Rf * 0.05), hgt = Rf * (0.1 + 0.08 * (1 - q)) * (0.8 + 0.4 * r()), lean = 0.25 + 0.5 * q, cs = r() < 0.5 ? 1 : -1, bright = 0.7 + 0.5 * r();
+        const lt = [0, 1, 2].map((j) => e2[j] * ca - e1[j] * sa);
+        for (let k = 0; k < K; k++) {
+          const t = k / (K - 1), curl = sstep(0.6, 1, t), ang = curl * 2.4 * cs;
+          const up = hgt * t, out = hgt * lean * t * t + Math.sin(ang) * Rf * 0.03 * curl, side = (1 - Math.cos(ang)) * Rf * 0.02 * curl * cs;
+          pt(k, base[0] + nf[0] * up + rdir[0] * out + lt[0] * side, base[1] + nf[1] * up + rdir[1] * out + lt[1] * side, base[2] + nf[2] * up + rdir[2] * out + lt[2] * side,
+            mix(cTube, mix(C.floret, C.orange, 0.7), sstep(0.2, 0.7, t)), 0.3 * bright, 0.5, 0.08 * t, 0.55, 0);
+        }
+        b.end();
+      }
+    }
+
+    // --- a head closed after flowering: a slim spindle of bracts, the new pappus just showing ------------------
+    if (nBud) {
+      const Fb = [0.4, -0.66, -0.44], nb = norm([0.38, 0.88, -0.28]), [b1, b2] = frame(nb);
+      const nBs = Math.round(nScape * 0.2);
+      b.part('scapus');
+      tube(cub([0.02, y0, -0.02], [0.05, y0 + 0.3, -0.06], add(Fb, nb, -0.3), add(Fb, nb, -0.02)), thick * 0.75, thick * 0.65, nBs, 0.5);
+      b.part('alabastrum');
+      const [nBr, nOut, nTuft] = alloc(nBud, [0.55, 0.12, 0.33]);
+      let used = 0;
+      for (let j = 0; j < 10; j++) {
+        const nlj = j === 9 ? nBr - used : Math.floor(nBr / 10);
+        if (nlj > 0) used += strap(Fb, nb, b1, b2, (j / 10) * TAU + r() * 0.2, { r0: 0.02, h0: 0, len: 0.17 * (0.92 + 0.12 * r()), wid: 0.02, el0: 1.28, el1: 1.74, bend: 1.2, cup: 0.7, pointed: true, twist: 0.3, cBase: C.stem, cMid: C.bract, cTip: C.bractTip, tipAmt: 0.7, gain: 0.36, size: 0.6, flex: 0.05, line: 0.55 }, nlj);
+      }
+      used = 0;
+      for (let j = 0; j < 7; j++) {
+        const nlj = j === 6 ? nOut - used : Math.floor(nOut / 7);
+        if (nlj > 0) used += strap(Fb, nb, b1, b2, (j / 7) * TAU + 0.3, { r0: 0.022, h0: 0, len: 0.06, wid: 0.01, el0: -0.2, el1: -1.0, bend: 1, cup: 0.4, pointed: true, cBase: C.stem, cMid: C.bract, cTip: C.bractTip, tipAmt: 0.8, gain: 0.32, size: 0.55, flex: 0.05, line: 0.55 }, nlj);
+      }
+      const apex = add(Fb, nb, 0.145);
+      for (let i = 0; i < nTuft; i++) {
+        // the pappus tips crowd out of the closed bracts; a few withered florets with them
+        const withered = i % 5 === 0, a = r() * TAU, tilt = 0.08 + 0.4 * Math.sqrt(r()), dir = norm(add(nb, add(scale(b1, Math.cos(a)), b2, Math.sin(a)), Math.tan(tilt)));
+        const len = withered ? 0.025 + 0.02 * r() : 0.035 + 0.05 * r(), s0 = add(apex, nb, -0.03), bright = 0.7 + 0.5 * r();
+        for (let k = 0; k < K; k++) {
+          const t = k / (K - 1), p = add(add(s0, dir, len * t), withered ? b1 : nb, withered ? 0.01 * Math.sin(t * 3 + a) : 0);
+          pt(k, p[0], p[1], p[2], withered ? mix(C.orange, C.achene, 0.6) : C.pappus, (withered ? 0.25 : 0.22) * bright * sstep(0, 0.4, t + 0.1), 0.42, 0.08 + 0.2 * t, 0.7, 0);
+        }
+        b.end();
+      }
+    }
+
+    // --- seeds in flight: they leave the bald patch and ride up and away across the case ---------------------------
+    b.part('diaspora');
+    {
+      const S = add(H, G, 0.72 * Rs + 0.12), E = [1.04, 1.08, -0.6], Cp = [H[0] + 0.5, 1.12, 0.3];
+      // the stream zigzags across itself (seen from the default view) and in depth, so no two parachutes stack
+      const Pn = norm(cross([E[0] - S[0], E[1] - S[1], E[2] - S[2]], [0.62, 0, 0.79])), Pd = [0.59, 0, 0.81];
+      for (let i = 0; i < D; i++) {
+        const tau = Math.pow((i + 0.6) / (D + 0.1), 1.25), s = 1 - tau, side = (i % 2 ? 1 : -1) * (0.03 + 0.1 * tau), deep = ((i % 3) - 1) * 0.14 * tau;
+        const O = [0, 1, 2].map((j) => s * s * S[j] + 2 * s * tau * Cp[j] + tau * tau * E[j] + Pn[j] * side + Pd[j] * deep + g() * 0.015);
+        O[0] = clamp(O[0], -1.1, 1.1); O[1] = clamp(O[1], -0.9, 1.16); O[2] = clamp(O[2], -1.1, 1.1);
+        const d = norm([lerp(G[0], 0, Math.sqrt(tau)) + g() * 0.2, lerp(G[1], 1, Math.sqrt(tau)), lerp(G[2], 0, Math.sqrt(tau)) + g() * 0.2]);
+        const s0 = b.s;
+        diaspore(O, d, Lb, La, Bf, 1);
+        b.tag(s0, b.s, 1 + i, null);
+      }
+      if (D > 0) {
+        // one has already landed, lying on the floor among the leaves
+        const s0 = b.s;
+        diaspore([0.92, -1.36, 0.42], norm([-0.55, 0.22, 0.7]), Lb, La, Bf, 0);
+        b.tag(s0, b.s, D + 1, null);
+      }
+    }
+
+    // --- the clock: achenes, beaks and parachutes, each seed its own release group ------------------------------
+    const gid = (i) => { const lo = Dn + 1; return lo + (i % Math.max(1, 255 - lo + 1)); };
+    head.forEach((p) => { const [u, w] = frame(p.d); p.u = u; p.w = w; p.O = add(H, p.d, 0.76 * Rs * (0.97 + 0.06 * r())); });
+    b.part('achenium');
+    head.forEach((p, i) => { const s0 = b.s; achene(p.at, p.d, p.u, p.w, La, 0.0065 * (Rs / 0.46), 0); b.tag(s0, b.s, gid(i), null); });
+    b.part('rostrum');
+    head.forEach((p, i) => { const s0 = b.s; beak(add(p.at, p.d, La), p.O, scale(p.u, 0.006 * (r() - 0.5)), 0); b.tag(s0, b.s, gid(i), null); });
+    b.part('pappus');
+    let left = b.S - b.s;
+    head.forEach((p, i) => {
+      const n = Math.floor(left / (Mh - i)), s0 = b.s;
+      left -= n;
+      pappus(p.O, norm(add(p.d, [g(), g(), g()], 0.03)), p.u, p.w, n, Rs * pl, 0, 0.012);
+      b.tag(s0, b.s, gid(i), null);
     });
   }
 
