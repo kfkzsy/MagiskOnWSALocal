@@ -1054,77 +1054,291 @@ void main() {
 }
 `;
 
-const POINT_VERT = /* glsl */ `// particle.vert — draws each simulated texel as a soft sprite
+// Lighting shared by the sprites and the hairlines. A fibre is shaded as hair (Kajiya–Kay) along
+// its tangent; where the neighbouring strand of the same petal runs close, the pair also spans a
+// surface, which adds wrap diffuse, light through the petal and a fresnel rim — so petals read as
+// lit silk sheets with a bright side, a shade side and highlights that slide as the camera turns.
+const LIGHT_GLSL = /* glsl */ `uniform vec3 uKey;      // key light (world): the camera's upper left, swaying slowly
+uniform vec3 uBack;     // back light behind the specimen
+uniform vec3 uFillCol;  // cool fill that lifts the shadow side
+uniform float uSheen;   // silk highlight strength
+uniform vec4 uOcc;      // hold-out sphere (centre, radius): the bloom's body hides what lies behind it
+uniform float uSlab;    // half-depth of the in-focus slab around uFocus
+float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
+ivec2 adr(int i, int w) { return ivec2(i - (i / w) * w, i / w); }
+vec3 shade(vec3 c, vec3 p, vec3 T, vec3 N, float wN, float depth) {
+  vec3 V = normalize(cameraPosition - p);
+  float tl = dot(T, uKey), th = dot(T, normalize(uKey + V)), tb = dot(T, uBack);
+  float diff = sqrt(max(0.0, 1.0 - tl * tl));          // hair diffuse
+  float spec = pow(max(0.0, 1.0 - th * th), 36.0);     // sin^72: a narrow crest on each wavy fibre
+  float glow = 0.55 * sqrt(max(0.0, 1.0 - tb * tb));   // hairs lit from behind
+  float rim = 0.0;
+  if (wN > 0.0) {
+    N = dot(N, V) < 0.0 ? -N : N;                      // petals are two-sided
+    float nl = dot(N, uKey);
+    diff = mix(diff, clamp(nl * 0.5 + 0.5, 0.0, 1.0), wN);
+    glow = mix(glow, max(0.0, -dot(N, uBack)), wN);    // translucency: light through the petal
+    rim = wN * pow(1.0 - abs(dot(N, V)), 3.0);         // grazing sheen along folds and margins
+    spec *= mix(1.0, smoothstep(-0.2, 0.3, nl), wN);
+  }
+  float l = luma(c);
+  vec3 deep = max(mix(vec3(l), c, 1.6), 0.0);          // transmitted light comes out saturated
+  vec3 silk = mix(c, vec3(l * 1.8), 0.6);              // reflected highlights go whitish
+  vec3 col = c * (0.45 + 0.6 * diff) + deep * glow * 0.3 + silk * (spec * uSheen + rim * 0.55)
+           + uFillCol * l * (1.0 - diff) * 0.35;
+  // aerial perspective: behind the focus cooler and greyer, in front a touch warmer
+  float back = smoothstep(uFocus - 0.2, uFocus + 1.0, depth);
+  col = mix(col, vec3(luma(col)) * vec3(0.8, 0.92, 1.12), back * 0.42);
+  return col * mix(vec3(1.0), vec3(1.06, 1.0, 0.94), smoothstep(uFocus, uFocus - 0.9, depth));
+}
+// fake opacity: what lies behind the bloom's core, seen from the camera, is mostly hidden
+float holdout(vec3 p) {
+  if (uOcc.w <= 0.0) return 0.0;
+  vec3 rd = normalize(p - cameraPosition);
+  float tc = dot(uOcc.xyz - cameraPosition, rd);
+  float dp = length(cameraPosition + rd * tc - uOcc.xyz);
+  return smoothstep(0.0, 0.3, length(p - cameraPosition) - tc) * smoothstep(uOcc.w, uOcc.w * 0.5, dp);
+}
+`;
+// Sprite kernel: in focus a sharp core over a faint skirt (sharper as the sprite grows), defocused
+// a flat bokeh disc with a bright rim. kernelNorm keeps every shape at the energy of the old soft
+// gaussian, so sharpening and defocus never change the exposure.
+const SPRITE_GLSL = /* glsl */ `vec3 spriteShape(float core, float size) {
+  return vec3(mix(4.0, 10.0, smoothstep(2.0, 7.0, core)), smoothstep(0.45, 0.85, 1.0 - core / size), size);
+}
+float kernelNorm(vec3 s) {
+  return mix(0.7145 / (3.14159 / s.x * (1.0 - exp(-s.x)) + 0.127), 0.355, s.y);
+}
+`;
+
+const POINT_VERT = /* glsl */ `// particle.vert — draws each simulated texel as a sprite: a sharp core in a faint skirt,
+// lit like a silk fibre, defocused only outside the specimen's depth slab
 uniform sampler2D tPosition;
 uniform sampler2D tVelocity;
 uniform sampler2D tColor;
-uniform float uSize;       // world-space diameter
-uniform float uResY;       // drawing-buffer height, px
-uniform float uFocus;      // focal distance
-uniform float uAperture;   // depth-of-field strength
+uniform sampler2D tAux;      // x fibre weight, y drift, z release group, w glint (dew)
+uniform float uTexSize;      // simulation texture width; a strand is a run of 16 texels in a row
+uniform float uStride;       // texels to the strand beside this one, which spans the petal surface
+uniform float uSize;         // world-space diameter
+uniform float uResY;         // drawing-buffer height, px
+uniform float uDpr;          // drawing-buffer px per CSS px
+uniform float uFocus;        // focal distance
+uniform float uAperture;     // depth-of-field strength
+uniform float uFiber;        // hairline opacity: beads along a strand give way to its line
+uniform float uMotion;       // 0 under reduced motion: nothing twinkles
 uniform float uTime;
-varying vec3 vColor;
+${LIGHT_GLSL}${SPRITE_GLSL}varying vec3 vColor;
 varying float vAlpha;
+varying vec3 vShape;         // x core sharpness, y defocus, z sprite size px
+varying float vGlint;        // > 0: four-point dew star
 
 void main() {
-  vec2 ref = position.xy;        // texel address in the simulation
-  float rnd = position.z;
-  vec4 c = texture2D(tColor, ref);
+  vec4 c = texture2D(tColor, position.xy);
   if (c.a < 0.001) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); gl_PointSize = 0.0; return; }
-  vec3 p = texture2D(tPosition, ref).xyz;
-  float speed = length(texture2D(tVelocity, ref).xyz);
+  float rnd = position.z;
+  int w = int(uTexSize);
+  ivec2 at = ivec2(position.xy * uTexSize);
+  int id = at.y * w + at.x, k = id & 15;
+  vec3 p = texelFetch(tPosition, at, 0).xyz;
+  vec4 aux = texelFetch(tAux, at, 0);
+  float speed = length(texelFetch(tVelocity, at, 0).xyz);
+
+  // fibre tangent from the next particle on the strand, petal normal from the strand beside it
+  int dn = k < 15 ? 1 : -1, ds = id + int(uStride) < w * w ? int(uStride) : -int(uStride);
+  vec3 T = (texelFetch(tPosition, adr(id + dn, w), 0).xyz - p) * float(dn);
+  float tl = length(T);
+  T = tl > 1e-6 ? T / tl : vec3(0.0, 1.0, 0.0);
+  vec3 off = texelFetch(tPosition, adr(id + ds, w), 0).xyz - p;
+  vec3 N = cross(T, off);
+  float ol = length(off), nl = length(N);
+  float wN = smoothstep(0.1, 0.03, ol) * smoothstep(0.25, 0.6, nl / max(ol, 1e-6));
+  N /= max(nl, 1e-6);
 
   vec4 mv = modelViewMatrix * vec4(p, 1.0);
   gl_Position = projectionMatrix * mv;
   float depth = -mv.z;
-  float pxPerUnit = projectionMatrix[1][1] * uResY * 0.5 / depth;
+  float ppu = projectionMatrix[1][1] * uResY * 0.5 / depth;
 
-  float core = uSize * c.a * (0.6 + 0.8 * rnd) * pxPerUnit;      // in-focus diameter
-  float blur = abs(depth - uFocus) * uAperture * pxPerUnit * 0.03; // circle of confusion
+  // fibre-first: where the strand is drawn as a line its interior beads shrink and fade
+  float fiber = clamp(uFiber, 0.0, 1.0) * smoothstep(0.25, 0.45, aux.x);
+  float inner = (k > 0 && k < 15) ? fiber : 0.0, tip = k == 15 ? 1.0 : 0.0;
+  float core = uSize * c.a * (0.8 + 0.4 * rnd) * mix(1.0, 0.72, inner) * mix(1.0, 0.8, tip * fiber) * ppu;   // in-focus diameter
+  float blur = max(0.0, abs(depth - uFocus) - uSlab) * uAperture * ppu * 0.03;   // circle of confusion outside the slab
   float size = max(core + blur, 1.0);
-  gl_PointSize = size;
+  vShape = spriteShape(core, size);
 
   // constant energy: a sprite that grows (defocus) or drops below a pixel dims to match
-  vAlpha = (core * core) / (size * size) * mix(1.0, 0.3, smoothstep(uFocus - 0.5, uFocus + 1.0, depth));
-  float twinkle = step(0.992, rnd) * pow(0.5 + 0.5 * sin(uTime * 2.5 + rnd * 800.0), 8.0) * 3.0;
-  vAlpha *= 1.0 + twinkle;
+  float far = mix(1.0, 0.6, smoothstep(uFocus - 0.5, uFocus + 1.0, depth));
+  vAlpha = (core * core) / (size * size) * kernelNorm(vShape) * far * (1.0 - 0.8 * holdout(p)) * mix(1.0, 0.45, inner);
+  // a few hair tips shimmer
+  vAlpha *= 1.0 + tip * step(0.9, rnd) * pow(0.5 + 0.5 * sin(uTime * 1.7 + rnd * 800.0), 12.0) * 2.0 * uMotion;
+
+  vec3 col = shade(c.rgb, p, T, N, wN, depth);
+  col = mix(col, vec3(max(col.r, max(col.g, col.b))), 0.25 * tip * fiber);   // tips catch the light white
+  vGlint = 0.0;
+  if (aux.w > 0.0) {
+    // dew: a hard pin-point; the strand's last particle (a free tip) also flares into a star
+    // whenever its random facet mirrors the key light into the camera, and twinkles slowly
+    float h = float((uint(id >> 4) * 2654435761u) >> 8) / 16777216.0;
+    vec3 fn = normalize(vec3(fract(h * 17.0) - 0.5, fract(h * 31.0) - 0.15, fract(h * 47.0) - 0.5));
+    float flash = pow(max(0.0, dot(reflect(normalize(p - cameraPosition), fn), uKey)), 24.0);
+    float tw = pow(0.5 + 0.5 * sin(uTime * (1.1 + 2.0 * h) + h * 90.0), 10.0) * uMotion;
+    col = mix(col, vec3(luma(col)) + 0.15, 0.5 * aux.w);
+    vAlpha *= 1.0 + 2.0 * aux.w;
+    if (k == 15) {
+      vGlint = aux.w * (0.3 + 2.2 * flash + 1.2 * tw);
+      vShape = vec3(max(0.9 * uDpr, core * 0.5), 0.0, max(size, 18.0 * uDpr * min(1.0, 0.45 + vGlint)));
+      size = vShape.z;
+    }
+  }
+  gl_PointSize = size;
   // particles in flight run hot
-  vColor = c.rgb * (1.0 + speed * 0.6) + vec3(0.3, 0.25, 0.4) * speed * speed * 0.08;
+  vColor = col * (1.0 + speed * 0.6) + vec3(0.3, 0.25, 0.4) * speed * speed * 0.08;
 }
 `;
 const POINT_FRAG = /* glsl */ `uniform float uGain;
+uniform float uStar;
 varying vec3 vColor;
 varying float vAlpha;
+varying vec3 vShape;
+varying float vGlint;
 void main() {
   vec2 d = gl_PointCoord * 2.0 - 1.0;
   float r2 = dot(d, d);
   if (r2 > 1.0) discard;
-  float a = exp(-r2 * 4.0) - 0.018;
+  if (vGlint > 0.0) {
+    // dew star, in pixel units: pin-point core, four thin rays, a faint chromatic ring
+    vec2 q = abs(d) * vShape.z * 0.5;
+    float cw = vShape.x * vShape.x, len = vShape.z * 0.16;
+    float rays = exp(-q.x / len - q.y * q.y / cw) + exp(-q.y / len - q.x * q.x / cw);
+    float core = exp(-dot(q, q) / cw);
+    vec3 ring = vec3(0.45, 0.7, 1.0) * exp(-pow(sqrt(r2) - 0.42, 2.0) * 300.0) * 0.07;
+    gl_FragColor = vec4((normalize(vColor + 0.05) * 0.9 * (core * 1.3 + rays * 1.5) + ring) * vGlint * uStar, 1.0);
+    return;
+  }
+  // in focus: a sharp core over a faint skirt; defocused: a flat disc with a brighter rim (macro bokeh)
+  float a = exp(-r2 * vShape.x) + 0.1 * exp(-r2 * 2.2);
+  if (vShape.y > 0.0) {
+    float r = sqrt(r2);
+    a = mix(a, smoothstep(1.0, 0.82, r) * (0.55 + 0.45 * smoothstep(0.35, 0.92, r)), vShape.y);
+  }
   gl_FragColor = vec4(vColor * a * vAlpha * uGain, 1.0);
 }
 `;
-const LINE_VERT = /* glsl */ `uniform sampler2D tPosition;
+// Floor reflection: the same sprites mirrored in the black-glass floor (or the lotus pond),
+// a quarter of them, softer and fading with height, clipped to where the floor actually is.
+const MIRROR_VERT = /* glsl */ `uniform sampler2D tPosition;
+uniform sampler2D tColor;
+uniform float uSize;
+uniform float uResY;
+uniform float uFocus;
+uniform float uAperture;
+uniform float uSlab;
+uniform float uTime;
+uniform float uPlane;     // height of the reflecting surface
+uniform float uHalf;      // half-size of the floor
+uniform float uKeep;      // share of particles that reflect
+uniform float uMirror;    // reflection strength
+uniform float uRipple;    // > 0 on water
+uniform vec3 uMirrorTint;
+${SPRITE_GLSL}varying vec3 vColor;
+varying float vAlpha;
+varying vec3 vShape;
+varying float vGlint;
+void main() {
+  vGlint = 0.0;
+  if (position.z > uKeep || uMirror <= 0.0) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); gl_PointSize = 0.0; return; }
+  vec4 c = texture2D(tColor, position.xy);
+  vec3 p = texture2D(tPosition, position.xy).xyz;
+  float h = p.y - uPlane;
+  vec3 m = vec3(p.x, uPlane - h, p.z);
+  if (uRipple > 0.0) {
+    float r = length(m.xz);
+    m.xz += uRipple * 0.012 * sin(r * 28.0 - uTime * 1.5) * m.xz / max(r, 1e-3);
+  }
+  // where the eye ray to the mirrored point crosses the floor; off the glass there is no reflection
+  vec2 hit = mix(cameraPosition.xz, m.xz, (cameraPosition.y - uPlane) / max(cameraPosition.y - m.y, 1e-3));
+  if (c.a < 0.001 || h < -0.02 || cameraPosition.y < uPlane || max(abs(hit.x), abs(hit.y)) > uHalf) {
+    gl_Position = vec4(2.0, 2.0, 2.0, 1.0); gl_PointSize = 0.0; return;
+  }
+  vec4 mv = modelViewMatrix * vec4(m, 1.0);
+  gl_Position = projectionMatrix * mv;
+  float depth = -mv.z;
+  float ppu = projectionMatrix[1][1] * uResY * 0.5 / depth;
+  float core = uSize * c.a * 1.7 * ppu;
+  float size = max(core + max(0.0, abs(depth - uFocus) - uSlab) * uAperture * ppu * 0.03, 1.0);
+  vShape = spriteShape(core, size);
+  vShape.x = 3.0;
+  gl_PointSize = size;
+  vAlpha = (core * core) / (size * size) * kernelNorm(vShape) * uMirror * exp(-max(h, 0.0) * 2.2) / max(uKeep, 0.05);
+  vColor = c.rgb * uMirrorTint;
+}
+`;
+const LINE_VERT = /* glsl */ `// hairline.vert — every strand is drawn as a Catmull-Rom curve through its 16 particles,
+// uSub sub-steps per span, with a slight crimp so fibres read as crinkled silk, not wire.
+// No vertex attributes: gl_VertexID alone says which strand, span and sub-step this is.
+uniform sampler2D tPosition;
 uniform sampler2D tColor;
 uniform sampler2D tAux;
+uniform sampler2D tHome;     // home positions; w = flex, 0 at a fibre's root .. 1 at its free tip
+uniform float uTexSize;
+uniform float uStride;
+uniform float uSub;
 uniform float uOpacity;
 uniform float uFocus;
 uniform float uAperture;
 uniform float uMaxLen;
-attribute vec2 ref2;
-varying vec3 vColor;
+uniform float uCrimp;
+${LIGHT_GLSL}varying vec3 vColor;
 varying float vAlpha;
 void main() {
-  vec3 p = texture2D(tPosition, position.xy).xyz;
-  vec3 q = texture2D(tPosition, ref2).xyz;
-  vec4 c = texture2D(tColor, position.xy);
-  float w = texture2D(tAux, position.xy).x;
+  int w = int(uTexSize), sub = int(uSub), per = 15 * sub;
+  int seg = gl_VertexID >> 1, s = seg / per, j = seg - s * per, k = j / sub;
+  float t = float(j - k * sub + (gl_VertexID & 1)) / uSub;
+  int i1 = s * 16 + k;
+  vec3 p0 = texelFetch(tPosition, adr(i1 - (k > 0 ? 1 : 0), w), 0).xyz;
+  vec3 p1 = texelFetch(tPosition, adr(i1, w), 0).xyz;
+  vec3 p2 = texelFetch(tPosition, adr(i1 + 1, w), 0).xyz;
+  vec3 p3 = texelFetch(tPosition, adr(i1 + (k < 14 ? 2 : 1), w), 0).xyz;
+  vec3 b = p2 - p0, c2 = 2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3, d3 = 3.0 * (p1 - p2) + p3 - p0;
+  vec3 p = p1 + 0.5 * t * (b + t * (c2 + t * d3));
+  vec3 tan = 0.5 * (b + t * (2.0 * c2 + 3.0 * t * d3));
+  // in flight the neighbours fly apart and the spline would loop: fall back to straight spans
+  float L = distance(p1, p2);
+  float lin = smoothstep(uMaxLen * 0.3, uMaxLen * 0.8, max(distance(p0, p1), distance(p2, p3)));
+  p = mix(p, mix(p1, p2, t), lin);
+  tan = mix(tan, p2 - p1, lin);
+  float tl = length(tan);
+  vec3 T = tl > 1e-7 ? tan / tl : vec3(0.0, 1.0, 0.0);
+  vec4 aux = texelFetch(tAux, adr(i1, w), 0);
+  vec4 c = mix(texelFetch(tColor, adr(i1, w), 0), texelFetch(tColor, adr(i1 + 1, w), 0), t);
+
+  // crimp across the line of sight: zero at every particle, so the curve still threads the
+  // sprites; free tips crinkle most, roots and stems stay straight
+  float h = float((uint(s) * 2654435761u) >> 8) / 16777216.0, u = float(k) + t;
+  float flex = texelFetch(tHome, adr(i1, w), 0).w;
+  vec3 B = cross(T, normalize(cameraPosition - p));
+  float bl = length(B);
+  p += (bl > 1e-5 ? B / bl : vec3(0.0)) * uCrimp * aux.x * min(flex + 0.15, 1.0) * (h - 0.5) * 2.0
+     * sin(3.14159265 * u * (h > 0.7 ? 2.0 : 1.0));
+
+  int ds = i1 + int(uStride) < w * w ? int(uStride) : -int(uStride);
+  vec3 off = texelFetch(tPosition, adr(i1 + ds, w), 0).xyz - p1;
+  vec3 N = cross(T, off);
+  float ol = length(off), nl = length(N);
+  float wN = smoothstep(0.1, 0.03, ol) * smoothstep(0.25, 0.6, nl / max(ol, 1e-6));
+  N /= max(nl, 1e-6);
+
   vec4 mv = modelViewMatrix * vec4(p, 1.0);
   gl_Position = projectionMatrix * mv;
-  float blur = abs(-mv.z - uFocus) * uAperture;
-  float far = mix(1.0, 0.3, smoothstep(uFocus - 0.5, uFocus + 1.0, -mv.z));
-  // a segment fades out as its two particles drift apart, so strands dissolve in flight
-  vAlpha = far * w * uOpacity * smoothstep(uMaxLen, uMaxLen * 0.35, distance(p, q)) / (1.0 + blur * blur * 3.0);
-  vColor = c.rgb;
+  float depth = -mv.z;
+  float blur = max(0.0, abs(depth - uFocus) - uSlab) * uAperture;
+  float far = mix(1.0, 0.6, smoothstep(uFocus - 0.5, uFocus + 1.0, depth));
+  // a span fades out as its two particles drift apart, so strands dissolve in flight;
+  // hairs thin toward the tip; dew strands are drawn by their sprites, not as rings
+  vAlpha = far * aux.x * uOpacity * smoothstep(uMaxLen, uMaxLen * 0.35, L) * mix(1.0, 0.7, u / 15.0)
+         * (1.0 - 0.8 * holdout(p)) * (1.0 - 0.6 * aux.w) / (1.0 + blur * blur * 3.0);
+  vColor = shade(c.rgb, p, T, N, wN, depth);
 }
 `;
 const LINE_FRAG = /* glsl */ `uniform float uGain;
@@ -1136,11 +1350,15 @@ const DUST_VERT = /* glsl */ `uniform float uTime;
 uniform float uResY;
 uniform float uFocus;
 uniform float uAperture;
+uniform float uSlab;
 uniform float uSpan;
 uniform vec3 uTint;
+uniform vec3 uBeam;          // lamp cone: x radius at the lid, y at the floor, z how much motes glitter in it
 attribute vec4 aSeed;
-varying vec3 vColor;
+${SPRITE_GLSL}varying vec3 vColor;
 varying float vAlpha;
+varying vec3 vShape;
+varying float vGlint;
 void main() {
   vec3 p = position;
   float span = aSeed.w > 0.02 ? 9.0 : uSpan;
@@ -1153,31 +1371,52 @@ void main() {
   float depth = -mv.z;
   float ppu = projectionMatrix[1][1] * uResY * 0.5 / depth;
   float core = aSeed.w * ppu;
-  float size = max(core + abs(depth - uFocus) * uAperture * ppu * 0.03, 1.0);
+  float size = max(core + max(0.0, abs(depth - uFocus) - uSlab) * uAperture * ppu * 0.03, 1.0);
   gl_PointSize = size;
+  vShape = spriteShape(core, size);
+  vGlint = 0.0;
+  // motes inside the lamp's cone catch its light; the rest stay a faint haze
+  float rb = mix(uBeam.y, uBeam.x, clamp(p.y / uSpan + 0.5, 0.0, 1.0));
+  float lit = smoothstep(rb, rb * 0.55, length(p.xz)) * step(aSeed.w, 0.02);
   float edge = smoothstep(span * 0.5, span * 0.5 - 0.4, abs(y));
-  vAlpha = (core * core) / (size * size) * edge * (0.55 + 0.45 * sin(uTime * 0.7 + aSeed.y * 40.0));
-  vColor = mix(vec3(0.55, 0.65, 1.0), uTint, aSeed.z);
+  vAlpha = (core * core) / (size * size) * kernelNorm(vShape) * edge * (0.55 + 0.45 * sin(uTime * 0.7 + aSeed.y * 40.0))
+         * mix(1.0, 0.4 + 1.8 * lit, uBeam.z);
+  vColor = mix(mix(vec3(0.55, 0.65, 1.0), uTint, aSeed.z), vec3(1.0, 0.95, 0.88), lit * 0.5);
 }
 `;
 const LensShader = {
   uniforms: {
     tDiffuse: { value: null }, uTime: { value: 0 }, uCenter: { value: new THREE.Vector2(0.5, 0.5) },
-    uAspect: { value: 1 }, uCA: { value: 0.0016 }, uVignette: { value: 0.55 }, uGrain: { value: 0.028 },
+    uAspect: { value: 1 }, uCA: { value: 0.0007 }, uVignette: { value: 0.55 }, uGrain: { value: 0.014 },
+    // per-specimen grade, display-referred: lift tints the blacks, gain the highlights
+    uLift: { value: new THREE.Vector3() }, uGainC: { value: new THREE.Vector3(1, 1, 1) },
+    uGamma: { value: 1 }, uSat: { value: 1 }, uContrast: { value: 0 }, uBackdrop: { value: new THREE.Vector3(0.03, 0.038, 0.046) },
   },
   vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
   fragmentShader: /* glsl */ `uniform sampler2D tDiffuse;
-uniform float uTime, uCA, uVignette, uGrain, uAspect;
+uniform float uTime, uCA, uVignette, uGrain, uAspect, uGamma, uSat, uContrast;
 uniform vec2 uCenter;
+uniform vec3 uLift, uGainC, uBackdrop;
 varying vec2 vUv;
 float hash(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 void main() {
   vec2 d = vUv - uCenter;
   float r = length(d * vec2(uAspect, 1.0));
-  vec2 off = d * uCA * (1.0 + r * 2.0);
+  // lateral colour only toward the frame edge, so hairlines on the specimen stay RGB-aligned
+  vec2 off = d * uCA * 3.0 * smoothstep(0.35, 1.0, r);
   vec3 c = vec3(texture2D(tDiffuse, vUv + off).r, texture2D(tDiffuse, vUv).g, texture2D(tDiffuse, vUv - off).b);
+  const vec3 W = vec3(0.2126, 0.7152, 0.0722);
+  float l = dot(c, W);
+  // cool slate backdrop: the warm specimen pops against its complement
+  c += mix(uBackdrop * 0.33, uBackdrop, smoothstep(1.2, 0.0, r)) * (1.0 - smoothstep(0.0, 0.06, l));
+  // grade: tinted lift and gain (split toning), gamma, an S-curve, saturation
+  c = c * uGainC + uLift * (1.0 - c);
+  c = pow(max(c, 0.0), vec3(1.0 / uGamma));
+  c = mix(c, c * c * (3.0 - 2.0 * min(c, 1.0)), uContrast);
+  c = max(mix(vec3(dot(c, W)), c, uSat), 0.0);
   c *= mix(1.0, smoothstep(1.35, 0.2, r), uVignette);
-  c += (hash(gl_FragCoord.xy + fract(uTime * 7.31) * 513.0) - 0.5) * uGrain;
+  // film grain only in the dark, where it also breaks up banding; the fibres stay clean
+  c += (hash(gl_FragCoord.xy + fract(uTime * 7.31) * 513.0) - 0.5) * uGrain * (1.0 - smoothstep(0.05, 0.4, l));
   gl_FragColor = vec4(c, 1.0);
 }`,
 };
@@ -1271,7 +1510,9 @@ const HDR_RT = FLOAT_RT || renderer.extensions.has('EXT_color_buffer_half_float'
 // MSAA only pays off on 1x screens; on high-DPI it would cost hundreds of MB for little gain
 const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: HDR_RT ? THREE.HalfFloatType : THREE.UnsignedByteType, samples: (devicePixelRatio || 1) < 1.5 ? 4 : 0 }));
 composer.addPass(new RenderPass(scene, camera));
-const bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.7, 0.34, 0.22);
+// a high threshold and a tight radius: bloom catches dew, hair tips and the dense core,
+// not every petal pixel, so the fibres stay crisp instead of sitting in a pink veil
+const bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.4, 0.16, 0.6);
 composer.addPass(bloomPass);
 composer.addPass(new OutputPass());
 const lensPass = new ShaderPass(LensShader);
@@ -1281,25 +1522,41 @@ composer.addPass(lensPass);
 const HALF = 1.45;
 const deco = new THREE.Group();
 scene.add(deco);
+// Render look shared by every fibre material: one uniform object per value, so tick sets each once.
+const LOOK = {
+  uKey: { value: new THREE.Vector3(-0.4, 0.8, 0.45).normalize() }, uBack: { value: new THREE.Vector3(0.3, 0.55, -0.78).normalize() },
+  uFillCol: { value: new THREE.Color(0.5, 0.68, 1.0) }, uSheen: { value: 1 }, uOcc: { value: new THREE.Vector4() }, uSlab: { value: 1 },
+};
+// the floor reflection (shared by every Herbarium's mirror material)
+const MIRROR = { uPlane: { value: -HALF }, uHalf: { value: HALF }, uKeep: { value: 0.28 }, uMirror: { value: 0.2 }, uRipple: { value: 0 }, uMirrorTint: { value: new THREE.Color(0.8, 0.85, 0.95) } };
+// case edges fade with depth, so the box reads in 3D and its far side recedes behind the specimen
+const caseMat = (color, opacity) => new THREE.ShaderMaterial({
+  uniforms: { uColor: { value: new THREE.Color(color) }, uOpacity: { value: opacity }, uFocus: { value: 8 } },
+  vertexShader: `uniform float uFocus; varying float vFade;
+void main() { vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mv; vFade = mix(1.2, 0.4, smoothstep(uFocus - 1.8, uFocus + 2.0, -mv.z)); }`,
+  fragmentShader: `uniform vec3 uColor; uniform float uOpacity; varying float vFade; void main() { gl_FragColor = vec4(uColor, uOpacity * vFade); }`,
+  transparent: true, depthWrite: false,
+});
+const caseMats = [caseMat(0xc9d1e0, 0.15), caseMat(0xe6ebf5, 0.42)];
 {
-  const boxMat = new THREE.LineBasicMaterial({ color: 0xc9d1e0, transparent: true, opacity: 0.14, depthWrite: false });
-  deco.add(new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(HALF * 2, HALF * 2, HALF * 2)), boxMat));
+  deco.add(new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(HALF * 2, HALF * 2, HALF * 2)), caseMats[0]));
   const pts = [], L = 0.2;
   for (const x of [-1, 1]) for (const y of [-1, 1]) for (const z of [-1, 1]) {
     const c = [x * HALF, y * HALF, z * HALF];
     pts.push(...c, c[0] - x * L, c[1], c[2], ...c, c[0], c[1] - y * L, c[2], ...c, c[0], c[1], c[2] - z * L);
   }
-  for (let i = -3; i <= 3; i++) {
-    const t = (i / 4) * HALF;
-    for (const z of [-1, 1]) pts.push(t, -HALF, z * HALF, t, -HALF, z * HALF - z * 0.05);
-    for (const x of [-1, 1]) pts.push(x * HALF, -HALF, t, x * HALF - x * 0.05, -HALF, t);
+  // etched rule along the floor edges: centimetre ticks, longer every 5 cm
+  for (let i = -14; i <= 14; i++) {
+    const t = i * 0.1, l = i % 5 ? 0.025 : 0.06;
+    for (const z of [-1, 1]) pts.push(t, -HALF, z * HALF, t, -HALF, z * HALF - z * l);
+    for (const x of [-1, 1]) pts.push(x * HALF, -HALF, t, x * HALF - x * l, -HALF, t);
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
-  deco.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0xe6ebf5, transparent: true, opacity: 0.42, depthWrite: false })));
+  deco.add(new THREE.LineSegments(g, caseMats[1]));
   const grid = new THREE.GridHelper(HALF * 2, 16, 0x8090a8, 0x8090a8);
-  grid.position.y = -HALF;
-  grid.material.transparent = true; grid.material.opacity = 0.045; grid.material.depthWrite = false;
+  grid.position.y = -HALF; grid.renderOrder = -3;
+  grid.material.transparent = true; grid.material.opacity = 0.04; grid.material.depthWrite = false;
   deco.add(grid);
 }
 function radialTexture(stops) {
@@ -1311,11 +1568,12 @@ function radialTexture(stops) {
 }
 const glowTex = radialTexture([[0, 1], [0.25, 0.45], [0.6, 0.1], [1, 0]]);
 const accentColor = new THREE.Color(SPECIMENS.peony.accent);
-const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: accentColor, transparent: true, opacity: 0.018, blending: THREE.AdditiveBlending, depthWrite: false }));
+const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: accentColor, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }));
 halo.scale.set(4.4, 4.4, 1);
 scene.add(halo);
-const pool = new THREE.Mesh(new THREE.PlaneGeometry(HALF * 2, HALF * 2), new THREE.MeshBasicMaterial({ map: glowTex, color: accentColor, transparent: true, opacity: 0.05, blending: THREE.AdditiveBlending, depthWrite: false }));
-pool.rotation.x = -Math.PI / 2; pool.position.y = -HALF + 0.002;
+// the lamp's footprint on the floor: neutral and cool, so no coloured fog sits under the plant
+const pool = new THREE.Mesh(new THREE.PlaneGeometry(HALF * 2, HALF * 2), new THREE.MeshBasicMaterial({ map: glowTex, color: accentColor, transparent: true, opacity: 0.02, blending: THREE.AdditiveBlending, depthWrite: false }));
+pool.rotation.x = -Math.PI / 2; pool.position.y = -HALF + 0.002; pool.renderOrder = -4;
 scene.add(pool);
 
 const dust = (() => {
@@ -1330,12 +1588,195 @@ const dust = (() => {
   g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   g.setAttribute('aSeed', new THREE.BufferAttribute(seed, 4));
   const m = new THREE.ShaderMaterial({
-    uniforms: { uTime: { value: 0 }, uSpan: { value: HALF * 2 }, uResY: { value: 1 }, uFocus: { value: 8 }, uAperture: { value: 0.8 }, uTint: { value: accentColor.clone() }, uGain: { value: 0.22 } },
+    uniforms: { uTime: { value: 0 }, uSpan: { value: HALF * 2 }, uResY: { value: 1 }, uFocus: { value: 8 }, uAperture: { value: 0.6 }, uSlab: LOOK.uSlab, uTint: { value: accentColor.clone() }, uGain: { value: 0.12 }, uBeam: { value: new THREE.Vector3(0.2, 1.3, 1) } },
     vertexShader: DUST_VERT, fragmentShader: POINT_FRAG, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
   });
   const p = new THREE.Points(g, m); p.frustumCulled = false; scene.add(p);
   return m;
 })();
+
+/* ---------- atmosphere: black-glass floor, the case lamp and its beam, glass panes, far stars ---------- */
+const lampColor = new THREE.Color(1, 0.95, 0.88);
+const worldVert = `varying vec3 vW; varying vec3 vN; varying vec2 vUv;
+void main() { vUv = uv; vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; vN = normalize(mat3(modelMatrix) * normal); gl_Position = projectionMatrix * viewMatrix * w; }`;
+const atmo = {
+  // black glass: a fresnel sheen toward grazing angles and a thin bright bevel at the plinth edge
+  floor: new THREE.ShaderMaterial({
+    uniforms: { uLamp: { value: lampColor }, uHalf: { value: HALF }, uOpacity: { value: 1 } },
+    vertexShader: worldVert,
+    fragmentShader: /* glsl */ `uniform vec3 uLamp; uniform float uHalf, uOpacity; varying vec3 vW; varying vec3 vN; varying vec2 vUv;
+void main() {
+  vec3 V = normalize(cameraPosition - vW);
+  float fres = 0.03 + 0.97 * pow(1.0 - abs(V.y), 5.0);
+  vec2 e = abs(vW.xz) / uHalf;
+  float bevel = smoothstep(0.985, 1.0, max(e.x, e.y));
+  float r = length(vW.xz);
+  float lit = 0.35 + 0.65 * exp(-r * r * 0.9);
+  gl_FragColor = vec4(uLamp * (fres * 0.035 * lit + bevel * 0.02) * uOpacity, 1.0);
+}`,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  }),
+  // a soft contact shadow under the plant darkens the lamp pool and the grid
+  shadow: new THREE.MeshBasicMaterial({ map: glowTex, color: 0x000000, transparent: true, opacity: 0.5, depthWrite: false }),
+  // the lamp's beam as a lit volume: each pixel integrates the eye ray's path through the cone
+  // (analytic ray–cone intersection), so the middle reads dense, the edges fade like real light,
+  // and the light thins as the cone widens toward the floor
+  beam: new THREE.ShaderMaterial({
+    uniforms: { uColor: { value: lampColor }, uOpacity: { value: 0.03 }, uTime: { value: 0 }, uCone: { value: new THREE.Vector4(HALF - 0.02 + 0.2 / 0.385, 0.385, HALF - 0.02, -HALF + 0.02) } },
+    vertexShader: worldVert,
+    fragmentShader: /* glsl */ `uniform vec3 uColor; uniform float uOpacity, uTime;
+uniform vec4 uCone;  // x apex height, y radius per unit drop, z lid, w floor
+varying vec3 vW; varying vec3 vN; varying vec2 vUv;
+void main() {
+  vec3 o = cameraPosition, d = normalize(vW - cameraPosition);
+  float s2 = uCone.y * uCone.y, h = uCone.x - o.y;
+  float A = d.x * d.x + d.z * d.z - s2 * d.y * d.y;
+  A = abs(A) < 1e-6 ? 1e-6 : A;
+  float B = 2.0 * (o.x * d.x + o.z * d.z + s2 * h * d.y), C = o.x * o.x + o.z * o.z - s2 * h * h;
+  float ta = 0.0, tb = 1e3;
+  if (abs(d.y) > 1e-5) { float t1 = (uCone.z - o.y) / d.y, t2 = (uCone.w - o.y) / d.y; ta = max(ta, min(t1, t2)); tb = min(tb, max(t1, t2)); }
+  float disc = B * B - 4.0 * A * C, len = 0.0, tm = 0.0;
+  if (disc > 0.0) {
+    float q = sqrt(disc), lo = min(-B - q, -B + q) / (2.0 * A), hi = max(-B - q, -B + q) / (2.0 * A);
+    if (A > 0.0) { float a0 = max(ta, lo), a1 = min(tb, hi); len = max(0.0, a1 - a0); tm = 0.5 * (a0 + a1); }
+    else { float l1 = max(0.0, min(tb, lo) - ta), l2 = max(0.0, tb - max(ta, hi)); len = l1 + l2; tm = l1 > l2 ? ta + 0.5 * l1 : tb - 0.5 * l2; }
+  }
+  vec3 m = o + d * tm;
+  float dens = 0.25 / max(uCone.y * (uCone.x - m.y), 0.2) * smoothstep(uCone.w, uCone.w + 1.0, m.y);
+  float n = 0.82 + 0.18 * sin(m.y * 2.3 - uTime * 0.21 + sin(m.x * 3.1 + m.z * 2.3 + uTime * 0.13) * 1.4);
+  gl_FragColor = vec4(uColor * uOpacity * len * dens * n, 1.0);
+}`,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.BackSide,
+  }),
+  // glass panes: a faint diagonal reflection streak that slides across each wall as you orbit
+  glass: new THREE.ShaderMaterial({
+    uniforms: { uColor: { value: new THREE.Color(0.75, 0.85, 1.0) }, uOpacity: { value: 0.02 } },
+    vertexShader: worldVert,
+    fragmentShader: /* glsl */ `uniform vec3 uColor; uniform float uOpacity; varying vec3 vW; varying vec3 vN; varying vec2 vUv;
+void main() {
+  vec3 V = normalize(cameraPosition - vW), N = normalize(vN);
+  float fres = 0.1 + 0.9 * pow(1.0 - abs(dot(N, V)), 4.0);
+  float s = vUv.x * 0.85 + vUv.y * 0.5 - 0.68 + dot(V, cross(N, vec3(0.0, 1.0, 0.0))) * 0.9;
+  float streak = exp(-s * s * 36.0) + 0.7 * exp(-(s - 0.17) * (s - 0.17) * 900.0);
+  gl_FragColor = vec4(uColor * uOpacity * fres * (0.12 + streak) * smoothstep(0.0, 0.12, vUv.y), 1.0);
+}`,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  }),
+  stars: null,
+};
+{
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(HALF * 2, HALF * 2), atmo.floor);
+  floor.rotation.x = -Math.PI / 2; floor.position.y = -HALF + 0.001; floor.renderOrder = -4;
+  const shadow = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.9), atmo.shadow);
+  shadow.rotation.x = -Math.PI / 2; shadow.position.y = -HALF + 0.003; shadow.renderOrder = -2;
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 1.34, HALF * 2, 48, 1, false), atmo.beam);
+  beam.renderOrder = 1;
+  // the lamp itself: a small bright ring in the lid
+  const ringPts = [];
+  for (let i = 0; i <= 64; i++) { const a = (i / 64) * Math.PI * 2; ringPts.push(Math.cos(a) * 0.2, HALF - 0.012, Math.sin(a) * 0.2); }
+  const ringG = new THREE.BufferGeometry();
+  ringG.setAttribute('position', new THREE.Float32BufferAttribute(ringPts, 3));
+  const ring = new THREE.Line(ringG, caseMat(0xf4f1ea, 0.3));
+  caseMats.push(ring.material);
+  const lampGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: lampColor, transparent: true, opacity: 0.05, blending: THREE.AdditiveBlending, depthWrite: false }));
+  lampGlow.position.y = HALF - 0.02; lampGlow.scale.set(0.9, 0.35, 1);
+  atmo.lampGlow = lampGlow.material;
+  const panes = new THREE.Group();
+  for (let i = 0; i < 4; i++) {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(HALF * 2, HALF * 2), atmo.glass);
+    m.rotation.y = (i * Math.PI) / 2; m.position.set(Math.sin((i * Math.PI) / 2) * HALF, 0, Math.cos((i * Math.PI) / 2) * HALF);
+    panes.add(m);
+  }
+  // far stars behind the case: depth for the orbit, kept faint so the specimen stays the subject
+  const n = 900, sp = new Float32Array(n * 3), ss = new Float32Array(n * 2);
+  for (let i = 0; i < n; i++) {
+    const y = Math.random() * 1.6 - 0.6, a = Math.random() * Math.PI * 2, r = 22 + Math.random() * 16, q = Math.sqrt(1 - y * y);
+    sp.set([Math.cos(a) * q * r, y * r, Math.sin(a) * q * r], i * 3);
+    ss.set([0.7 + Math.pow(Math.random(), 3) * 1.6, 0.02 + Math.pow(Math.random(), 4) * 0.14], i * 2);
+  }
+  const sg = new THREE.BufferGeometry();
+  sg.setAttribute('position', new THREE.BufferAttribute(sp, 3));
+  sg.setAttribute('aStar', new THREE.BufferAttribute(ss, 2));
+  atmo.stars = new THREE.ShaderMaterial({
+    uniforms: { uDpr: { value: 1 }, uTime: { value: 0 } },
+    vertexShader: `uniform float uDpr, uTime; attribute vec2 aStar; varying float vA;
+void main() { gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); gl_PointSize = aStar.x * uDpr; vA = aStar.y * (0.75 + 0.25 * sin(uTime * 0.6 + position.x * 3.1)); }`,
+    fragmentShader: `varying float vA; void main() { vec2 d = gl_PointCoord * 2.0 - 1.0; gl_FragColor = vec4(vec3(0.72, 0.8, 1.0) * vA * exp(-dot(d, d) * 3.0), 1.0); }`,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  });
+  const stars = new THREE.Points(sg, atmo.stars);
+  stars.frustumCulled = false; stars.renderOrder = -5;
+  scene.add(floor, shadow, beam, ring, lampGlow, panes, stars);
+}
+
+// Per-specimen looks — each plate gets its own grade and light, so the four read as authored:
+// peony silk embroidery at noon, rose copperplate at dusk, lotus ink-wash dawn, dandelion cyanotype night.
+// lift tints the blacks, gain the highlights (display-referred, in LensShader); occ scales the hold-out
+// sphere by the bloom's own spread; lamp tints the beam, pool and floor sheen.
+const LOOKS = {
+  peony: { lift: [0.004, 0.012, 0.011], gain: [1.04, 1.0, 0.96], gamma: 1.0, sat: 1.05, contrast: 0.05, backdrop: [0.04, 0.052, 0.06], lamp: [1, 0.96, 0.92], bloom: 1, radius: 1, line: 1, sheen: 1, halo: 0, occ: 1.4, mirror: 0.2, beam: 1 },
+  rose: { lift: [0.012, 0.003, 0.01], gain: [1.05, 0.97, 0.9], gamma: 0.98, sat: 1, contrast: 0.14, backdrop: [0.046, 0.038, 0.05], lamp: [1, 0.86, 0.72], bloom: 0.75, radius: 1, line: 1.3, sheen: 1.15, halo: 0, occ: 1.6, mirror: 0.2, beam: 1.2 },
+  lotus: { lift: [0.012, 0.02, 0.02], gain: [1.04, 0.99, 0.95], gamma: 1.04, sat: 0.92, contrast: -0.06, backdrop: [0.044, 0.06, 0.064], lamp: [0.92, 0.97, 1], bloom: 1.1, radius: 1.6, line: 1, sheen: 0.8, halo: 0.006, occ: 1, mirror: 0.32, beam: 0.8, plane: -1.32, ripple: 1, tint: [0.6, 0.85, 1.1] },
+  dandelion: { lift: [0.003, 0.009, 0.024], gain: [0.95, 1, 1.07], gamma: 1, sat: 0.7, contrast: 0.06, backdrop: [0.028, 0.044, 0.07], lamp: [0.72, 0.82, 1], bloom: 1, radius: 1.2, line: 1, sheen: 0.9, halo: 0.006, occ: 0.25, mirror: 0.2, beam: 1.3 },
+};
+const look = { first: true, t: 0, data: null, occR: 0, beam: 1, bloom: 1, radius: 1, line: 1, sheen: 1, halo: 0, mirror: 0.2, plane: -HALF, ripple: 0 };
+const lookTmp = new THREE.Vector3(), lookCol = new THREE.Color(), poolTint = new THREE.Color(0x7f8ea6);
+// median distance of the bloom's particles from the focus: sizes the hold-out sphere per build
+function bloomSpread(P, C) {
+  const f = state.focus, d = new Float32Array(Math.ceil(P.length / 28));
+  let n = 0;
+  for (let i = 0; i < P.length; i += 28) {
+    if (C[i + 3] <= 0) continue;
+    const x = P[i] - f.x, y = P[i + 1] - f.y, z = P[i + 2] - f.z, r = Math.hypot(x, y, z);
+    if (r < 1.4 && y > -0.5) d[n++] = r;
+  }
+  return n ? d.subarray(0, n).sort()[n >> 1] : 0;
+}
+// called from tick after the base uniforms: eases the plate's look in and aims the lights
+function updateLook(focusDist) {
+  const L = LOOKS[state.kind] || LOOKS.peony, u = lensPass.uniforms;
+  // eased on simulation time, so a warped (debug) clock lands on the plate's look at once
+  const k = look.first ? 1 : 1 - Math.exp(-Math.max(0, state.simT - look.t) * 2);
+  look.t = state.simT;
+  look.first = false;
+  u.uLift.value.lerp(lookTmp.fromArray(L.lift), k);
+  u.uGainC.value.lerp(lookTmp.fromArray(L.gain), k);
+  u.uBackdrop.value.lerp(lookTmp.fromArray(L.backdrop), k);
+  u.uGamma.value += (L.gamma - u.uGamma.value) * k;
+  u.uSat.value += (L.sat - u.uSat.value) * k;
+  u.uContrast.value += (L.contrast - u.uContrast.value) * k;
+  for (const key of ['bloom', 'radius', 'line', 'sheen', 'halo', 'mirror', 'ripple', 'beam']) look[key] += ((L[key] || 0) - look[key]) * k;
+  look.plane += ((L.plane ?? -HALF) - look.plane) * k;
+  lampColor.lerp(lookCol.setRGB(...L.lamp), k);
+  MIRROR.uMirrorTint.value.lerp(lookCol.setRGB(...(L.tint || [0.8, 0.85, 0.95])), k);
+
+  bloomPass.strength = params.bloom * look.bloom;
+  bloomPass.radius = 0.16 * look.radius;
+  // 1-px hairlines carry dpr-scaled gain, so on dense screens they would cross the threshold en masse
+  bloomPass.threshold = 0.6 + 0.25 * Math.max(0, renderer.getPixelRatio() - 1);
+  herb.lineMat.uniforms.uOpacity.value = params.fiber * look.line;
+  LOOK.uSheen.value = params.sheen * look.sheen;
+  halo.material.opacity = look.halo;
+  pool.material.color.copy(poolTint).multiply(lampColor);
+  atmo.lampGlow.color.copy(lampColor);
+  MIRROR.uMirror.value = look.mirror; MIRROR.uPlane.value = look.plane; MIRROR.uRipple.value = look.ripple;
+  atmo.shadow.opacity = 0.5 * (1 - look.ripple);
+
+  // lights ride with the camera like a studio rig; the key sways slowly around its upper left
+  const t = reduceMotion ? 0 : state.simT, a = -0.55 + 0.3 * Math.sin(t * 0.07);
+  LOOK.uKey.value.set(Math.sin(a) * 0.6, 0.75, Math.cos(a) * 0.6).normalize().transformDirection(camera.matrixWorld);
+  LOOK.uBack.value.set(0.3, 0.55, -0.78).normalize().transformDirection(camera.matrixWorld);
+  // the hold-out sphere is sized from each build's own spread
+  const P = herb.tPos.image.data;
+  if (herb.ready && P !== look.data) { look.data = P; look.occR = L.occ * bloomSpread(P, herb.tCol.image.data); }
+  LOOK.uOcc.value.set(state.focus.x, state.focus.y, state.focus.z, look.occR);
+
+  for (const m of caseMats) m.uniforms.uFocus.value = focusDist;
+  atmo.beam.uniforms.uTime.value = t;
+  atmo.beam.uniforms.uOpacity.value = 0.05 * look.beam;
+  atmo.stars.uniforms.uTime.value = t;
+  atmo.stars.uniforms.uDpr.value = renderer.getPixelRatio();
+}
 
 /* =====================================================================
    Herbarium — GPGPU particle system (position / velocity / colour)
@@ -1372,31 +1813,37 @@ class Herbarium {
     for (let i = 0; i < this.N; i++) ref.set([((i % size) + 0.5) / size, (Math.floor(i / size) + 0.5) / size, Math.random()], i * 3);
     const pg = new THREE.BufferGeometry();
     pg.setAttribute('position', new THREE.BufferAttribute(ref, 3));
+    // one uniform object per value, shared by the sprite, hairline and mirror materials
+    const R = {
+      tPosition: U(null), tVelocity: U(null), tColor: U(null), tAux: U(this.tAux), tHome: U(this.tPos), uTexSize: U(size), uStride: U(48),
+      uResY: U(1), uDpr: U(1), uFocus: U(8), uTime: U(0), uMotion: U(reduceMotion ? 0 : 1), uSize: U(0.0055), uGain: U(0.55),
+    };
     this.pointMat = new THREE.ShaderMaterial({
-      uniforms: { tPosition: U(null), tVelocity: U(null), tColor: U(null), uSize: U(0.0055), uResY: U(1), uFocus: U(8), uAperture: U(0.8), uTime: U(0), uGain: U(0.55) },
+      uniforms: { ...LOOK, ...R, uAperture: U(0.6), uFiber: U(0.8), uStar: U(1) },
       vertexShader: POINT_VERT, fragmentShader: POINT_FRAG, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
     });
     this.points = new THREE.Points(pg, this.pointMat);
     this.points.frustumCulled = false;
+    // the floor reflection: the same sprites mirrored in the glass (drawn before the specimen)
+    this.mirrorMat = new THREE.ShaderMaterial({
+      uniforms: { ...MIRROR, ...R, uSlab: LOOK.uSlab, uAperture: this.pointMat.uniforms.uAperture },
+      vertexShader: MIRROR_VERT, fragmentShader: POINT_FRAG, transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending,
+    });
+    this.mirror = new THREE.Points(pg, this.mirrorMat);
+    this.mirror.frustumCulled = false; this.mirror.renderOrder = -1;
 
-    // fibers: one segment between consecutive particles of a strand
-    const segs = this.S * (K - 1), la = new Float32Array(segs * 6), lb = new Float32Array(segs * 4);
-    let o = 0;
-    const uv = (i) => [((i % size) + 0.5) / size, (Math.floor(i / size) + 0.5) / size];
-    for (let s = 0; s < this.S; s++) for (let k = 0; k < K - 1; k++) {
-      const a = uv(s * K + k), b = uv(s * K + k + 1);
-      la.set([a[0], a[1], 0, b[0], b[1], 0], o * 6); lb.set([...b, ...a], o * 4); o++;
-    }
+    // fibers: Catmull-Rom hairlines, uSub sub-steps per span. No vertex data at all —
+    // the shader derives strand, span and sub-step from gl_VertexID.
+    this.sub = size > 512 || coarse ? 2 : 3;
     const lg = new THREE.BufferGeometry();
-    lg.setAttribute('position', new THREE.BufferAttribute(la, 3));
-    lg.setAttribute('ref2', new THREE.BufferAttribute(lb, 2));
+    lg.setDrawRange(0, this.S * (K - 1) * this.sub * 2);
     this.lineMat = new THREE.ShaderMaterial({
-      uniforms: { tPosition: U(null), tColor: U(null), tAux: U(this.tAux), uOpacity: U(0.55), uFocus: U(8), uAperture: U(0.8), uMaxLen: U(0.16), uGain: U(0.55) },
+      uniforms: { ...LOOK, ...R, uOpacity: U(0.8), uAperture: U(0.07), uMaxLen: U(0.16), uSub: U(this.sub), uCrimp: U(0.006), uGain: U(0.55) },
       vertexShader: LINE_VERT, fragmentShader: LINE_FRAG, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
     });
     this.lines = new THREE.LineSegments(lg, this.lineMat);
     this.lines.frustumCulled = false;
-    scene.add(this.lines, this.points);
+    scene.add(this.mirror, this.lines, this.points);
     this.bind();
   }
   // a three-armed galaxy of cold particles that collapses into the specimen
@@ -1417,8 +1864,7 @@ class Herbarium {
     this.pointMat.uniforms.tPosition.value = gpu.getCurrentRenderTarget(this.pos).texture;
     this.pointMat.uniforms.tVelocity.value = gpu.getCurrentRenderTarget(this.vel).texture;
     this.pointMat.uniforms.tColor.value = gpu.getCurrentRenderTarget(this.col).texture;
-    this.lineMat.uniforms.tPosition.value = this.pointMat.uniforms.tPosition.value;
-    this.lineMat.uniforms.tColor.value = this.pointMat.uniforms.tColor.value;
+    // lineMat and mirrorMat share these uniform objects, so they follow along
   }
   setTargets(res) {
     this.tPos.image.data = res.P; this.tCol.image.data = res.C; this.tAux.image.data = res.A;
@@ -1446,8 +1892,8 @@ class Herbarium {
     this.bind();
   }
   dispose() {
-    scene.remove(this.points, this.lines);
-    this.points.geometry.dispose(); this.lines.geometry.dispose(); this.pointMat.dispose(); this.lineMat.dispose();
+    scene.remove(this.points, this.lines, this.mirror);
+    this.points.geometry.dispose(); this.lines.geometry.dispose(); this.pointMat.dispose(); this.lineMat.dispose(); this.mirrorMat.dispose();
     this.tPos.dispose(); this.tCol.dispose(); this.tAux.dispose(); this.gpu.dispose();
   }
 }
@@ -1468,7 +1914,7 @@ function runLocal(req) { setTimeout(() => onBuilt({ id: req.id, N: req.N, ...GEN
 /* =====================================================================
    App state
    ===================================================================== */
-const DEFAULTS = { bloom: 0.7, gain: 1, size: 1, fiber: 0.5, wind: 1, turb: 1, dof: 0.8, spin: 0.6 };
+const DEFAULTS = { bloom: 0.4, gain: 1, size: 1, fiber: 0.8, sheen: 1, wind: 1, turb: 1, dof: 0.6, spin: 0.6 };
 const params = { ...DEFAULTS };
 const QUALITY = { low: 256, mid: 384, high: 512, ultra: 640 };
 const state = {
@@ -1712,7 +2158,7 @@ $('#btn-copy').addEventListener('click', () => {
 
 /* ---------- render controls ---------- */
 const SLIDERS = [
-  ['bloom', '辉光', 'bloom', 0, 2.5], ['gain', '亮度', 'exposure', 0.2, 2.5], ['size', '粒径', 'size', 0.3, 2.5], ['fiber', '纤维', 'fibers', 0, 1.5],
+  ['bloom', '辉光', 'bloom', 0, 2.5], ['gain', '亮度', 'exposure', 0.2, 2.5], ['size', '粒径', 'size', 0.3, 2.5], ['fiber', '纤维', 'fibers', 0, 1.5], ['sheen', '光泽', 'sheen', 0, 2.5],
   ['wind', '风', 'wind', 0, 3], ['turb', '湍流', 'turbulence', 0, 4], ['dof', '景深', 'aperture', 0, 3], ['spin', '自转', 'spin', 0, 4],
 ];
 $('#sliders').innerHTML = SLIDERS.map(([id, zh, en, min, max]) => `<div class="row"><label for="s-${id}">${zh}<small>${en}</small><output id="o-${id}"></output></label><input type="range" id="s-${id}" min="${min}" max="${max}" step="0.01"></div>`).join('');
@@ -1921,15 +2367,17 @@ function tick(now) {
 
   const focusDist = camera.position.distanceTo(state.focus);
   renderer.getDrawingBufferSize(drawSize);
-  const pm = herb.pointMat.uniforms, lm = herb.lineMat.uniforms;
-  pm.uResY.value = drawSize.y; pm.uFocus.value = focusDist; pm.uAperture.value = params.dof; pm.uTime.value = state.simT;
+  const pm = herb.pointMat.uniforms, lm = herb.lineMat.uniforms, dpr = renderer.getPixelRatio();
+  pm.uResY.value = drawSize.y; pm.uFocus.value = focusDist; pm.uAperture.value = params.dof; pm.uTime.value = state.simT; pm.uDpr.value = dpr;
   // additive light piles up with particle count, so brightness is normalised to the 262K reference
   const density = Math.pow(262144 / herb.N, 0.8);
-  pm.uSize.value = 0.0055 * params.size; pm.uGain.value = 0.16 * params.gain * density;
-  lm.uFocus.value = focusDist; lm.uAperture.value = params.dof * 0.12; lm.uOpacity.value = params.fiber; lm.uGain.value = 0.07 * params.gain * density * renderer.getPixelRatio();
+  pm.uSize.value = 0.0055 * params.size; pm.uGain.value = 0.16 * params.gain * density; pm.uFiber.value = params.fiber; pm.uStar.value = 1.2 * params.gain;
+  // the hairlines carry more of the light than the beads: 1 px each, scaled with the pixel ratio
+  lm.uFocus.value = focusDist; lm.uAperture.value = params.dof * 0.12; lm.uOpacity.value = params.fiber; lm.uGain.value = 0.09 * params.gain * density * dpr;
   dust.uniforms.uResY.value = drawSize.y; dust.uniforms.uFocus.value = focusDist; dust.uniforms.uAperture.value = params.dof; dust.uniforms.uTime.value = state.simT;
   bloomPass.strength = params.bloom;
   lensPass.uniforms.uTime.value = state.simT;
+  updateLook(focusDist);
   for (const f of frameHooks) f(raw, now);
 
   composer.render(raw);
