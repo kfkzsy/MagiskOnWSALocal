@@ -941,9 +941,28 @@ function GEN() {
 /* =====================================================================
    Shaders
    ===================================================================== */
+// Release groups (aux.z = id > 0): pieces that now and then come loose and travel as one rigid body.
+// uGroups holds one texel column per id: row 0 (pivot, start time), row 1 (dir, mode), row 2 (turn, rnd).
+// Modes: 1 fall — a petal flutters to the floor, rests, dissolves and regrows on the plant;
+// 2 seed — lifts away on the wind and out of the case, then regrows in place;
+// 3 fly — an insect takes a turn round the flower and lands again; 4 drift — afloat, turns on the current.
+// The timeline is shared by flow.frag (where to be) and tint.frag (when to fade and regrow);
+// Herbarium.relEnd() mirrors the episode length on the CPU.
+const REL_GLSL = /* glsl */ `uniform sampler2D uGroups;
+vec4 relGroup(float id, float row) { return texture2D(uGroups, vec2((floor(id + 0.5) + 0.5) / 256.0, (row + 0.5) / 4.0)); }
+// x: path ends (back home), y: fade-out starts, z: regrowth starts, w: episode over
+vec4 relTimes(float mode, float rnd) {
+  if (mode < 1.5) { float tr = 15.5 + 2.0 * rnd + 3.0 * fract(rnd * 7.3); return vec4(tr + 1.6, tr, tr + 3.4, tr + 6.0); }
+  if (mode < 2.5) { float tf = 8.5 + 3.0 * rnd; return vec4(tf, tf - 2.5, tf + 2.5 + 6.0 * fract(rnd * 5.1), tf + 5.0 + 6.0 * fract(rnd * 5.1)); }
+  float tf = mode < 3.5 ? 10.0 + 2.0 * rnd : 16.0 + 6.0 * rnd;
+  return vec4(tf, 1e5, 1e5, tf + 1.0);
+}
+`;
+
 const FLOW_FRAG = /* glsl */ `// flow.frag — velocity pass of the GPGPU simulation.
-// One texel = one particle. Springs pull particles home,
-// a divergence-free flow keeps them alive, the pointer stirs them.
+// One texel = one particle. Springs pull particles home, a divergence-free flow keeps
+// them alive, gusts comb across the case, the bloom breathes, the pointer stirs them,
+// and tagged pieces now and then come loose and travel as one rigid body.
 uniform float uTime;
 uniform float uDelta;
 uniform float uMorphStart;   // when the current shape was assigned
@@ -958,9 +977,14 @@ uniform vec3  uRayDir;
 uniform float uMouse;
 uniform float uMouseRadius;
 uniform vec4  uBurst;        // xyz origin, w impulse
+uniform vec3  uFocus;        // bloom centre
+uniform float uBreath;       // bud, breath and nod; 0 under reduced motion
+uniform float uInk;          // 1: the old specimen sheds like ink in water before the new one rises
+uniform vec4  uGust;         // xz direction, front position along it, amplitude
+uniform float uFloor;        // where loose pieces come to rest (floor, or the lotus water line)
 uniform sampler2D uTargetPos;  // xyz home, w flex
 uniform sampler2D uTargetAux;  // x fiber weight, y drift, z release group, w glint
-
+${REL_GLSL}
 float hash12(vec2 p) {
   vec3 p3 = fract(vec3(p.xyx) * 0.1031);
   p3 += dot(p3, p3.yzx + 33.33);
@@ -978,6 +1002,61 @@ vec3 flow(vec3 p, float t) {
   return abc(p * 1.6, t) + 0.5 * abc(p * 3.7 + 11.0, t * 1.7);
 }
 
+vec3 rot(vec3 v, vec3 ax, float a) { float c = cos(a), s = sin(a); return v * c + cross(ax, v) * s + ax * dot(ax, v) * (1.0 - c); }
+vec3 rotv(vec3 v, vec3 rv) { float a = length(rv); return a < 1e-4 ? v : rot(v, rv / a, a); }
+
+// where a loose particle should be tau seconds into its group's flight
+vec3 relPath(vec3 home, vec4 g0, vec4 g1, vec4 g2, float tau, float tEnd) {
+  const vec3 UP = vec3(0.0, 1.0, 0.0);
+  vec3 piv = g0.xyz, dir = g1.xyz, v = home - piv;
+  float rnd = g2.w, sgn = rnd < 0.5 ? -1.0 : 1.0;
+  if (g1.w < 1.5) {
+    // fall: a falling-leaf pendulum — swings side to side, rocking with each swing, turns slowly,
+    // drifts out on the air and settles flat on the floor
+    float u = clamp(tau / (6.5 + 2.0 * rnd), 0.0, 1.0), e = u * u * (3.0 - 2.0 * u);
+    float env = smoothstep(0.0, 0.14, u) * (1.0 - smoothstep(0.78, 1.0, u)), ph = tau * 6.2832 / (1.45 + 0.5 * rnd);
+    vec3 side = normalize(cross(UP, dir) + vec3(1e-4, 0.0, 0.0));
+    v = rotv(v, g2.xyz * e);
+    v = rot(v, UP, sgn * (0.8 + rnd) * e);
+    v = rot(v, normalize(dir + vec3(0.0, 1e-4, 0.0)), 0.5 * sin(ph) * env);
+    vec3 p = piv + dir * e + side * cos(ph) * 0.12 * env;
+    p.y = mix(piv.y, uFloor + 0.02, mix(u, e, 0.5)) + 0.03 * sin(ph) * sin(ph) * env + 0.035 * sin(3.1416 * min(tau / 0.9, 1.0));
+    p += v;
+    p.y = max(p.y, uFloor + 0.003);
+    p.xz = clamp(p.xz, -1.43, 1.43);   // a petal blown against the glass slides down it
+    return p;
+  }
+  if (g1.w < 2.5) {
+    // seed: pops off the head, gathers speed downwind, rises on the air and spirals as the
+    // parachute rights itself (|dir| = wind speed)
+    vec3 ob = normalize(piv - uFocus + vec3(0.0, 1e-3, 0.0));
+    float a0 = rnd * 6.2832, a = a0 + tau * (1.4 + rnd);
+    vec3 p = piv + ob * 0.08 * smoothstep(0.0, 0.8, tau) + dir * (tau * tau / (tau + 2.0))
+      + UP * (0.15 + 0.1 * rnd) * (tau * tau / (tau + 3.0))
+      + (vec3(cos(a), 0.0, sin(a)) - vec3(cos(a0), 0.0, sin(a0))) * 0.07 * min(tau * 0.5, 1.0);
+    v = rotv(v, g2.xyz * smoothstep(0.2, 2.4, tau));
+    v = rot(v, UP, sgn * 0.7 * tau);
+    return p + v;
+  }
+  if (g1.w < 3.5) {
+    // fly: rises off its perch to the bloom, circles it darting and hovering (three stops), lands again
+    float s = clamp(tau / tEnd, 0.0, 1.0);
+    float a = sgn * 6.2832 * (s - sin(18.85 * s) / 18.85);
+    float lift = smoothstep(0.0, 0.12, s) * (1.0 - smoothstep(0.86, 1.0, s));
+    vec2 rad = piv.xz - uFocus.xz;
+    float R = clamp(length(rad), 0.55, 0.95);
+    vec3 orbit = vec3(uFocus.x, max(piv.y, uFocus.y + 0.32) + 0.06 * sin(a * 3.0 + rnd * 6.0), uFocus.z);
+    orbit.xz += rot(vec3(normalize(rad + 1e-4) * R, 0.0).xzy, UP, a).xz;
+    vec3 p = mix(piv, orbit, lift);
+    v = rot(v, UP, a);
+    v = rot(v, normalize(vec3(-sin(a), 0.0, cos(a)) + 1e-4), 0.25 * sin(a * 2.0) * lift);
+    return clamp(p + v, -1.43, 1.43);
+  }
+  // drift: afloat, the current turns it slowly and carries it a little way, then brings it back
+  float e = 0.5 - 0.5 * cos(6.2832 * clamp(tau / tEnd, 0.0, 1.0));
+  return clamp(piv + dir * e + rotv(v, g2.xyz * e) + UP * 0.004 * sin(tau * 2.1 + rnd * 6.0) * e, -1.43, 1.43);
+}
+
 void main() {
   vec2 uv = gl_FragCoord.xy / resolution.xy;
   vec3 pos = texture2D(texturePosition, uv).xyz;
@@ -987,31 +1066,75 @@ void main() {
 
   // fibers are runs of 16 texels: one hash per strand keeps a fiber together in flight
   float id = floor(gl_FragCoord.y) * resolution.x + floor(gl_FragCoord.x);
+  float k = mod(id, 16.0);
   float hs = hash12(vec2(floor(id / 16.0), 7.0));
   float hp = hash12(gl_FragCoord.xy);
 
-  // wind: the whole plant leans from the ground up, loose tips flutter
+  // growth wave: strands switch on from the ground up, each fiber inked from base to tip
+  float delay = ((home.y + 1.4) * 0.42 + hs * 0.55 + k * 0.02) * uStagger + uInk * 0.7;
+  float since = uTime - uMorphStart - delay;
+  float act = smoothstep(0.0, 1.0, since / 0.9);
+
+  // the bloom grows as a closed bud and unfurls like a time-lapse, inner petals last
   vec3 target = home.xyz;
-  float h = clamp((target.y + 1.35) / 2.6, 0.0, 1.0);
-  target.x += uWind * h * h * (sin(uTime * 0.55 + target.y * 0.9) * 0.05 + sin(uTime * 1.31) * 0.015);
-  target.z += uWind * h * h * cos(uTime * 0.43 + target.y * 1.1) * 0.03;
-  target += uWind * home.w * 0.012 * vec3(sin(uTime * 2.3 + hp * 40.0), sin(uTime * 1.9 + hp * 27.0), cos(uTime * 2.7 + hp * 33.0));
+  vec3 rel = home.xyz - uFocus;
+  float near = smoothstep(1.3, 0.4, length(rel)), wb = home.w * near;
+  float open = smoothstep(0.0, 1.0, (since - 0.8 - 0.5 * smoothstep(0.55, 0.05, length(rel.xz))) / 1.7);
+  float shut = (1.0 - open) * wb * uBreath;
+  target.xz -= rel.xz * 0.75 * shut;
+  target.y += shut * 0.25 * length(rel.xz);
+  // and then it breathes: open and close a few percent on a ~9 s cycle that ripples outward
+  target += normalize(rel + vec3(0.0, 1e-3, 0.0)) * wb * uBreath * 0.016 * sin(uTime * 0.68 - length(rel) * 2.4);
+
+  // calm air: the plant leans from the ground up, and nods towards the light on a 30 s cycle
+  float h = clamp((home.y + 1.35) / 2.6, 0.0, 1.0), h2 = h * h;
+  target.x += h2 * (uWind * (sin(uTime * 0.55 + home.y * 0.9) * 0.03 + sin(uTime * 1.31 + home.y * 2.0) * 0.006) + uBreath * 0.022 * sin(uTime * 0.209));
+  target.z += h2 * (uWind * cos(uTime * 0.43 + home.y * 1.1) * 0.02 + uBreath * 0.016 * sin(uTime * 0.157 + 1.2));
+  // gust front: a band of moving air sweeps across the case, combing the plant over as it passes
+  float gs = dot(home.xz, uGust.xy) - uGust.z;
+  float gust = uGust.w * exp(-gs * gs * 8.0);
+  target.xz += uGust.xy * gust * (h + h2) * (0.035 + 0.075 * home.w);
+  target.y -= gust * (h + h2) * home.w * 0.012;
+  // fine flutter: a wave runs along each fiber inside a slowly moving field of air, so neighbouring
+  // particles move together and hairlines stay smooth instead of fraying into per-particle jitter
+  float ph = hs * 40.0 + k * 0.55 - uTime * 2.2;
+  vec3 air = sin(vec3(dot(home.xyz, vec3(3.1, 1.7, -2.3)), dot(home.xyz, vec3(-1.9, 2.9, 1.3)), dot(home.xyz, vec3(2.2, -1.4, 3.3))) - uTime * vec3(1.3, 1.1, 1.5));
+  target += home.w * (uWind * 0.007 + gust * 0.03) * (vec3(sin(ph), 0.5 * sin(ph * 1.3 + 1.7), cos(ph * 0.9 + 0.4)) * 0.6 + air * 0.5);
   // drifting seeds and fallen petals ride a slow, smooth current
   target += aux.y * vec3(sin(uTime * 0.31 + home.y * 2.1) * 0.12,
                          sin(uTime * 0.47 + home.x * 1.7) * 0.09,
                          cos(uTime * 0.37 + home.z * 2.3) * 0.12);
 
-  // growth wave: strands switch on from the ground up
-  float delay = (home.y + 1.4) * 0.42 * uStagger + hs * 0.55 * uStagger;
-  float act = smoothstep(0.0, 1.0, (uTime - uMorphStart - delay) / 0.9);
+  // release groups: the whole piece follows one rigid path, then springs home (unseen, if it dissolved);
+  // an idle group costs one fetch (its start lies far in the past)
+  float flying = 0.0;
+  vec4 g0 = aux.z > 0.5 ? relGroup(aux.z, 0.0) : vec4(-1e5);
+  float tau = uTime - g0.w;
+  if (tau > 0.0 && tau < 40.0) {
+    vec4 g1 = relGroup(aux.z, 1.0), g2 = relGroup(aux.z, 2.0), T = relTimes(g1.w, g2.w);
+    if (tau < T.w) {
+      flying = 1.0;
+      if (tau < T.x) target = relPath(home.xyz, g0, g1, g2, tau, T.x);
+    }
+  }
 
   vec3 toHome = target - pos;
   float d = length(toHome);
-  vec3 acc = toHome * uSpring * (0.75 + 0.5 * hs) * (0.12 + 0.88 * act);
+  // a loose piece holds its path on a stiffer, better damped spring so it travels as one crisp body
+  vec3 acc = toHome * uSpring * (0.75 + 0.5 * hs) * (0.12 + 0.88 * act) * (1.0 + 3.0 * flying);
 
-  float turb = uTurbulence * (0.04 + home.w * 0.25) + (1.0 - act) * 1.8 + min(d, 1.2) * 0.5 * act + uKick;
+  // at rest the flow only breathes on flexy tips; it wakes when a particle is pushed off its mark
+  float wait = 1.0 - act;
+  float turb = uTurbulence * (0.02 + home.w * 0.1) * (1.0 - 0.8 * flying) + wait * (1.8 - 1.2 * uInk)
+    + min(d, 1.2) * 0.5 * act * smoothstep(0.03, 0.2, d) + uKick + gust * home.w * 0.25;
   acc += flow(pos, uTime * 0.35) * turb;
-  acc += (1.0 - act) * vec3(-pos.z, 0.25, pos.x) * 1.4;   // vortex while waiting to land
+  // waiting to land: from the galaxy a vortex; from an old specimen, ink curling down through water
+  // in fine tendrils and spreading over the floor (walls turn it back in)
+  if (wait > 0.0) {
+    vec3 ink = vec3(0.0, -2.4, 0.0) + abc(pos * 5.5 + 3.0, uTime * 0.9) * 1.1
+      - pos * vec3(0.4, 0.0, 0.4) * step(1.2, max(abs(pos.x), abs(pos.z)));
+    acc += wait * mix(vec3(-pos.z, 0.25, pos.x) * 1.4, ink, uInk);
+  }
 
   // pointer: push away from the view ray and spin around it
   vec3 ap = pos - uRayOrigin;
@@ -1020,36 +1143,56 @@ void main() {
   float f = uMouse * smoothstep(uMouseRadius, 0.0, r);
   acc += (off / (r + 1e-4)) * f * 10.0 + cross(uRayDir, off) * f * 18.0;
 
-  // click shockwave
+  // click shockwave: whole fibers are blown back like hair (one strength per strand, tips most)
   vec3 bd = pos - uBurst.xyz;
   float bl = length(bd);
-  vel += (bd / (bl + 1e-4)) * uBurst.w * exp(-bl * bl * 2.5) * (0.5 + hp);
+  vel += (bd / (bl + 1e-4)) * uBurst.w * exp(-bl * bl * 2.5) * (0.4 + 0.8 * hs + 0.2 * hp) * (0.7 + 0.5 * home.w);
 
   vel += acc * uDelta;
-  vel *= exp(-uDelta * uDamping * (0.45 + 0.55 * act));
+  // ink is viscous; loose pieces are damped to match their stiffer spring, so they land without ringing
+  vel *= exp(-uDelta * uDamping * mix(0.45 + 0.55 * act, 1.0, wait * uInk) * (1.0 + flying));
   gl_FragColor = vec4(vel, 1.0);
 }
 `;
 
+// the case floor: whatever sinks or falls inside the case comes to rest on it rather than through it
 const MOVE_FRAG = /* glsl */ `uniform float uDelta;
 void main() {
   vec2 uv = gl_FragCoord.xy / resolution.xy;
   vec4 p = texture2D(texturePosition, uv);
   p.xyz += texture2D(textureVelocity, uv).xyz * uDelta;
+  if (max(abs(p.x), abs(p.z)) < 1.45) p.y = max(p.y, -1.447);
   gl_FragColor = p;
 }
 `;
 
-// particles keep their old colour in flight and take the new one as they land
+// particles keep their old colour in flight and take the new one as they land;
+// a loose piece fades as it dissolves or leaves the case, and regrows from base to tip once home
 const TINT_FRAG = /* glsl */ `uniform float uDelta;
+uniform float uTime;
 uniform sampler2D uTargetCol;
 uniform sampler2D uTargetPos;
+uniform sampler2D uTargetAux;
+${REL_GLSL}
 void main() {
   vec2 uv = gl_FragCoord.xy / resolution.xy;
   vec4 c = texture2D(textureColor, uv);
   vec4 t = texture2D(uTargetCol, uv);
-  float d = distance(texture2D(texturePosition, uv).xyz, texture2D(uTargetPos, uv).xyz);
+  vec3 p = texture2D(texturePosition, uv).xyz;
+  float d = distance(p, texture2D(uTargetPos, uv).xyz);
   float rate = 0.6 + 5.0 * smoothstep(0.5, 0.02, d);
+  float g = texture2D(uTargetAux, uv).z;
+  float tau = uTime - (g > 0.5 ? relGroup(g, 0.0).w : -1e5);
+  if (tau > 0.0 && tau < 40.0) {
+    vec4 g1 = relGroup(g, 1.0), g2 = relGroup(g, 2.0), T = relTimes(g1.w, g2.w);
+    if (tau < T.w) {
+      float k = mod(floor(gl_FragCoord.y) * resolution.x + floor(gl_FragCoord.x), 16.0) / 15.0;
+      float vis = (1.0 - smoothstep(T.y, T.y + 1.6, tau)) * smoothstep(1.62, 1.36, max(max(abs(p.x), abs(p.z)), p.y));
+      if (tau > T.y + 1.6) vis = d < 0.08 && tau > T.z + k * 1.1 ? 1.0 : 0.0;
+      t *= vis;
+      rate = max(rate, 3.0);
+    }
+  }
   gl_FragColor = mix(c, t, 1.0 - exp(-uDelta * rate));
 }
 `;
@@ -1797,14 +1940,20 @@ class Herbarium {
     gpu.setVariableDependencies(this.col, [this.col, this.pos]);
     const mk = () => { const t = new THREE.DataTexture(new Float32Array(this.N * 4), size, size, THREE.RGBAFormat, THREE.FloatType); t.needsUpdate = true; return t; };
     this.tPos = mk(); this.tCol = mk(); this.tAux = mk();
+    // release groups: one column per aux.z id, rows (pivot, start) (dir, mode) (turn, rnd) — see release()
+    this.tGroups = new THREE.DataTexture(new Float32Array(256 * 4 * 4).fill(-1e5), 256, 4, THREE.RGBAFormat, THREE.FloatType);
+    this.tGroups.needsUpdate = true;
+    this.groups = []; this.grpSrc = null; this.relNext = 0; this.puffed = 0; this.fromGalaxy = true;
+    this.gust = { t0: -1e3, x: 1, z: 0, amp: 0, next: 0 }; this.gustOut = { x: 1, z: 0, front: 9, amp: 0 };
     const U = (v) => ({ value: v });
     Object.assign(this.vel.material.uniforms, {
       uTime: U(0), uDelta: U(0), uMorphStart: U(0), uStagger: U(1), uSpring: U(0), uDamping: U(3.6), uTurbulence: U(1), uWind: U(1), uKick: U(0),
       uRayOrigin: U(new THREE.Vector3(0, 0, 50)), uRayDir: U(new THREE.Vector3(0, 0, -1)), uMouse: U(0), uMouseRadius: U(0.3),
       uBurst: U(new THREE.Vector4()), uTargetPos: U(this.tPos), uTargetAux: U(this.tAux),
+      uFocus: U(new THREE.Vector3()), uBreath: U(reduceMotion ? 0 : 1), uInk: U(0), uGust: U(new THREE.Vector4(1, 0, 9, 0)), uFloor: U(-1.425), uGroups: U(this.tGroups),
     });
     this.pos.material.uniforms.uDelta = U(0);
-    Object.assign(this.col.material.uniforms, { uDelta: U(0), uTargetCol: U(this.tCol), uTargetPos: U(this.tPos) });
+    Object.assign(this.col.material.uniforms, { uDelta: U(0), uTime: U(0), uTargetCol: U(this.tCol), uTargetPos: U(this.tPos), uTargetAux: U(this.tAux), uGroups: U(this.tGroups) });
     const err = gpu.init();
     if (err) throw new Error(err);
 
@@ -1871,22 +2020,167 @@ class Herbarium {
     this.tPos.needsUpdate = this.tCol.needsUpdate = this.tAux.needsUpdate = true;
     this.strands = res.strands; this.ready = true;
   }
-  morph(t, stagger) { const u = this.vel.material.uniforms; u.uMorphStart.value = t; u.uStagger.value = stagger; }
+  morph(t, stagger) {
+    const u = this.vel.material.uniforms;
+    u.uMorphStart.value = t; u.uStagger.value = stagger;
+    // leaving a grown specimen (rather than the galaxy), the old shape sheds like ink in water first
+    u.uInk.value = this.fromGalaxy || reduceMotion ? 0 : 1;
+    this.fromGalaxy = false;
+  }
   regrow(t) {
     for (const [v, tex] of [[this.pos, this.p0], [this.vel, this.v0], [this.col, this.c0]]) {
       this.gpu.renderTexture(tex, v.renderTargets[0]); this.gpu.renderTexture(tex, v.renderTargets[1]);
     }
+    this.fromGalaxy = true;
     this.morph(t, 1);
   }
   settle() {
     for (const [v, tex] of [[this.pos, this.tPos], [this.col, this.tCol]]) { this.gpu.renderTexture(tex, v.renderTargets[0]); this.gpu.renderTexture(tex, v.renderTargets[1]); }
     this.morph(-100, 1);
   }
+  // Episode length per release mode; mirrors relTimes().w in REL_GLSL.
+  relEnd(mode, rnd) {
+    const fr = (x) => x - Math.floor(x);
+    if (mode === 1) return 21.5 + 2 * rnd + 3 * fr(rnd * 7.3);
+    if (mode === 2) return 13.5 + 3 * rnd + 6 * fr(rnd * 5.1);
+    return (mode === 3 ? 10 + 2 * rnd : 16 + 6 * rnd) + 1;
+  }
+  // One pass over a new shape: centroid, spread and principal axes of every release group, and how
+  // each travels — seeds ride the wind, pieces lying low drift, the lotus' visitor flies, petals fall.
+  scanGroups(t) {
+    const P = this.tPos.image.data, A = (this.grpSrc = this.tAux.image.data), M = new Float64Array(256 * 10);
+    // tags cover whole strands and strands are smooth, so a strand's base, middle and tip stand for it
+    for (let s = 0; s < A.length; s += K * 4) {
+      const g = A[s + 2];
+      if (!(g > 0.5)) continue;
+      const o = Math.min(255, Math.round(g)) * 10;
+      for (const k of [0, 7, K - 1]) {
+        const i = s + k * 4, x = P[i], y = P[i + 1], z = P[i + 2];
+        M[o]++; M[o + 1] += x; M[o + 2] += y; M[o + 3] += z;
+        M[o + 4] += x * x; M[o + 5] += y * y; M[o + 6] += z * z; M[o + 7] += x * y; M[o + 8] += x * z; M[o + 9] += y * z;
+      }
+    }
+    // eigenvectors of a symmetric 3x3 by Jacobi sweeps, smallest variance first
+    const eig = (c) => {
+      const m = [[c[0], c[3], c[4]], [c[3], c[1], c[5]], [c[4], c[5], c[2]]], v = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+      for (let it = 0; it < 6; it++) for (const [p, q] of [[0, 1], [0, 2], [1, 2]]) {
+        if (Math.abs(m[p][q]) < 1e-14) continue;
+        const th = 0.5 * Math.atan2(2 * m[p][q], m[q][q] - m[p][p]), cs = Math.cos(th), sn = Math.sin(th);
+        for (const X of [m, v]) for (let r = 0; r < 3; r++) { const a = X[r][p], b = X[r][q]; X[r][p] = cs * a - sn * b; X[r][q] = sn * a + cs * b; }
+        for (let r = 0; r < 3; r++) { const a = m[p][r], b = m[q][r]; m[p][r] = cs * a - sn * b; m[q][r] = sn * a + cs * b; }
+      }
+      return [0, 1, 2].sort((a, b) => m[a][a] - m[b][b]).map((j) => [v[0][j], v[1][j], v[2][j]]);
+    };
+    // rotation vector that turns the unit axis a (scaled by k) towards straight up
+    const upTurn = (a, k) => { const s = Math.hypot(a[0], a[2]), th = Math.acos(Math.max(-1, Math.min(1, a[1]))) * k; return s < 1e-5 ? [0, 0, 0] : [(-a[2] / s) * th, 0, (a[0] / s) * th]; };
+    const kind = state.kind, f = state.focus, floor = kind === 'lotus' ? -1.315 : -1.425;
+    this.vel.material.uniforms.uFloor.value = floor;
+    this.tGroups.image.data.fill(-1e5); this.tGroups.needsUpdate = true;
+    this.groups = [];
+    for (let id = 1; id < 256; id++) {
+      const o = id * 10, n = M[o];
+      if (!n) continue;
+      const c = [M[o + 1] / n, M[o + 2] / n, M[o + 3] / n];
+      const cov = [M[o + 4] / n - c[0] * c[0], M[o + 5] / n - c[1] * c[1], M[o + 6] / n - c[2] * c[2], M[o + 7] / n - c[0] * c[1], M[o + 8] / n - c[0] * c[2], M[o + 9] / n - c[1] * c[2]];
+      const ax = eig(cov), dx = c[0] - f.x, dy = c[1] - f.y, dz = c[2] - f.z, dist = Math.hypot(dx, dy, dz) || 1;
+      const mode = kind === 'dandelion' ? 2 : c[1] < floor + 0.12 ? 4 : kind === 'lotus' && dist > 0.5 ? 3 : 1, head = mode === 2 && dist < 0.75;
+      // a petal turns its face (least-spread axis) up to lie flat; a seed turns its stalk up (head seeds point
+      // away from the head, so the radial direction is their axis even when two seeds share an id)
+      let a = head ? [dx / dist, dy / dist, dz / dist] : mode === 2 ? ax[2] : ax[0];
+      if (a[1] < 0 && !head) a = [-a[0], -a[1], -a[2]];
+      this.groups.push({ id, piv: c, n, ext: Math.sqrt(Math.max(0, cov[0] + cov[1] + cov[2])), mode, head, turn: upTurn(a, mode === 2 ? 0.85 : 1), busy: 0 });
+    }
+    this.relNext = t + 10 + 10 * Math.random();
+  }
+  // Set group g loose at time t0 (may lie a moment ahead, for staggered departures); wind = [x, z] or null.
+  release(g, t0, wind) {
+    const D = this.tGroups.image.data, i = g.id * 4, R = 256 * 4, rnd = Math.random(), f = state.focus;
+    let dir = [0, 0, 0], turn = g.turn;
+    if (g.mode === 1) {
+      // falls outward and a little downwind, landing well inside the case
+      let ox = g.piv[0] - f.x, oz = g.piv[2] - f.z;
+      const l = Math.hypot(ox, oz) || 1;
+      ox = ox / l + (wind ? wind[0] * 0.5 : 0); oz = oz / l + (wind ? wind[1] * 0.5 : 0);
+      const m = Math.hypot(ox, oz) || 1, s = Math.min(0.2 + 0.3 * rnd, Math.max(0, 1.1 - Math.max(Math.abs(g.piv[0]), Math.abs(g.piv[2])))) / m;
+      dir = [ox * s, 0, oz * s];
+    } else if (g.mode === 2) {
+      const w = wind || [Math.cos(rnd * 40), Math.sin(rnd * 40)], sp = 0.2 + 0.15 * Math.random();
+      dir = [w[0] * sp, 0, w[1] * sp];
+    } else if (g.mode === 4) {
+      const a = Math.random() * Math.PI * 2, s = 0.04 + 0.06 * Math.random();
+      dir = [Math.cos(a) * s, 0, Math.sin(a) * s];
+      turn = [0, (rnd < 0.5 ? -1 : 1) * Math.min(0.7, 0.12 / Math.max(0.17, g.ext)), 0];
+    }
+    D.set([g.piv[0], g.piv[1], g.piv[2], t0], i);
+    D.set([dir[0], dir[1], dir[2], g.mode], R + i);
+    D.set([turn[0], turn[1], turn[2], rnd], 2 * R + i);
+    this.tGroups.needsUpdate = true;
+    g.busy = t0 + this.relEnd(g.mode, rnd) + 0.5;
+  }
+  // A click (or B) knocks loose what it hits: the nearest piece on the ray, or a puff of dandelion seeds.
+  releaseNear(B, t) {
+    const cam = camera.position, rd = [B.x - cam.x, B.y - cam.y, B.z - cam.z], rl = Math.hypot(rd[0], rd[1], rd[2]) || 1, hits = [];
+    for (const g of this.groups) {
+      if (g.busy > t) continue;
+      const px = g.piv[0] - B.x, py = g.piv[1] - B.y, pz = g.piv[2] - B.z, al = (px * rd[0] + py * rd[1] + pz * rd[2]) / rl;
+      const off = Math.sqrt(Math.max(0, px * px + py * py + pz * pz - al * al));
+      if (off < (g.mode === 2 ? 0.3 : 0.42)) hits.push([off + al * 0.05, g]);
+    }
+    hits.sort((a, b) => a[0] - b[0]);
+    const hl = Math.hypot(rd[0], rd[2]) || 1, f = state.focus;
+    hits.slice(0, state.kind === 'dandelion' ? 18 : 1).forEach(([, g], i) => {
+      // seeds blow away from the viewer, fanning out from the head
+      const ox = g.piv[0] - f.x, oz = g.piv[2] - f.z, ol = Math.hypot(ox, oz) || 1;
+      const wx = (rd[0] / hl) * 0.8 + (ox / ol) * 0.5, wz = (rd[2] / hl) * 0.8 + (oz / ol) * 0.5, wl = Math.hypot(wx, wz) || 1;
+      this.release(g, t + i * 0.06, [wx / wl, wz / wl]);
+    });
+  }
+  // Gusts and loose pieces: a few scalar decisions per frame on the CPU; the motion itself runs on the GPU.
+  life(t) {
+    const u = this.vel.material.uniforms, G = this.gust, f = state.focus;
+    if (this.tAux.image.data !== this.grpSrc) this.scanGroups(t);
+    // gust fronts: every 9-22 s a band of moving air crosses the case at 0.9 units/s from a new direction
+    if (!G.next) G.next = t + 5 + 6 * Math.random();
+    if (!reduceMotion && t > G.next) {
+      const a = Math.random() * Math.PI * 2;
+      Object.assign(G, { t0: t, x: Math.cos(a), z: Math.sin(a), amp: 0.6 + 0.6 * Math.random(), next: t + 9 + 13 * Math.random() });
+    }
+    const front = -2.2 + (t - G.t0) * 0.9, live = front < 2.4, amp = live ? G.amp * params.wind : 0;
+    u.uGust.value.set(G.x, G.z, front, amp);
+    const go = this.gustOut;
+    go.x = G.x; go.z = G.z; go.front = front; go.amp = amp;   // no per-frame allocation
+    state.gust = this.gustOut;
+    if (!this.groups.length) return;
+    const age = t - u.uMorphStart.value;
+    if (u.uBurst.value.w > 2 && age > 7) this.releaseNear(u.uBurst.value, t);
+    if (reduceMotion || age < 10) return;
+    if (state.kind === 'dandelion') {
+      // as a gust front crosses the head it carries off a puff of seeds from the lee side
+      if (live && amp > 0.2 && this.puffed !== G.t0 && front > f.x * G.x + f.z * G.z) {
+        this.puffed = G.t0;
+        const cand = [];
+        for (const g of this.groups) {
+          if (g.busy > t) continue;
+          const dx = g.piv[0] - f.x, dz = g.piv[2] - f.z, l = Math.hypot(dx, g.piv[1] - f.y, dz) || 1;
+          const lee = g.head ? (dx * G.x + dz * G.z) / l : Math.random() < 0.3 ? 1 : -1;
+          if (lee > 0.3) cand.push([lee + Math.random() * 0.7, g]);
+        }
+        cand.sort((a, b) => b[0] - a[0]);
+        cand.slice(0, Math.round((6 + 8 * Math.random()) * Math.min(1.5, amp))).forEach(([, g], i) => this.release(g, t + i * 0.15 + Math.random() * 0.4, [G.x, G.z]));
+      }
+    } else if (t > this.relNext) {
+      const idle = this.groups.filter((g) => g.busy < t);
+      if (idle.length) this.release(idle[(Math.random() * idle.length) | 0], t, live ? [G.x, G.z] : null);
+      this.relNext = t + 16 + 20 * Math.random();
+    }
+  }
   step(dt, t) {
-    const u = this.vel.material.uniforms;
+    const u = this.vel.material.uniforms, cu = this.col.material.uniforms;
     u.uTime.value = t; u.uDelta.value = dt; u.uSpring.value = this.ready ? 9 : 0;
+    u.uFocus.value.copy(state.focus);
     this.pos.material.uniforms.uDelta.value = dt;
-    this.col.material.uniforms.uDelta.value = this.ready ? dt : 0;
+    cu.uDelta.value = this.ready ? dt : 0; cu.uTime.value = t;
+    if (this.ready) this.life(t);
     this.gpu.compute();
     u.uBurst.value.w = 0;
     this.bind();
