@@ -11,7 +11,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500&display=swap&text=牡丹玫瑰荷花蒲公英芍药科蔷薇莲菊粒子标本馆">
 <!-- art layer: brush face for the inscriptions; serif 400/900 for glosses, colophon and the seal (subsets must hold every glyph drawn) -->
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&display=swap&text=牡丹玫瑰荷花蒲公英唯有真国色开时节动京城接叶连枝千万绿一两浅深红小才露尖角早蜻蜓立上头素球羽抱清风吹散作满天星">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;900&display=swap&text=唐・刘禹锡《赏牡丹》宋杨万里红玫瑰小池标本馆题记花瓣萼片冠雄蕊药雌柱头茎葶梗叶柄托苞总状序毛瘦果实种子芽皮刺根落水面蜻蜓露珠粉莲蓬荷菡萏座甲乙丙丁戊己庚辛壬癸丑寅卯辰巳午未申酉戌亥孟仲季春夏秋冬岁在　录于粒標格物">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;900&display=swap&text=唐・刘禹锡《赏牡丹》宋杨万里红玫瑰小池标本馆题记花瓣萼片冠雄蕊药雌柱头茎葶梗叶柄托苞总状序毛瘦果实种子芽皮刺根落水面蜻蜓露珠粉莲蓬荷菡萏座甲乙丙丁戊己庚辛壬癸丑寅卯辰巳午未申酉戌亥孟仲季春夏秋冬岁在　录于粒標格物化喙飞散浮卷">
 <style>
 @property --accent { syntax: "<color>"; inherits: true; initial-value: #ff5c8a; }
 /* Layout: a full-bleed particle stage; the live config docks left like a lab notebook,
@@ -261,6 +261,12 @@ body.bare .hud:not(.keep) { opacity: 0; visibility: hidden; }
   .toast { top: calc(150px + env(safe-area-inset-top, 0px)); }
 }
 @media (min-width: 861px) { #btn-close-code { display: none; } }
+/* the render panel scrolls instead of running off short screens */
+.tune { max-height: calc(100dvh - 84px - env(safe-area-inset-top, 0px)); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #262b36 transparent; }
+@media (max-width: 860px) { .tune { max-height: calc(100dvh - 124px - env(safe-area-inset-top, 0px)); } }
+/* with the code panel open the stage is narrower: drop the wordmark, then the preset numerals */
+@media (min-width: 861px) and (max-width: 1180px) { body:not(.code-closed):not(.bare) .brand { display: none; } }
+@media (min-width: 861px) and (max-width: 1000px) { body:not(.code-closed):not(.bare) .presets button { padding-inline: 9px; } body:not(.code-closed):not(.bare) .presets button em { display: none; } }
 @media (prefers-reduced-motion: reduce) {
   :root { transition: none; }
   #code, .hud, .toast { transition: none; }
@@ -914,7 +920,8 @@ function GEN() {
     function edge(o, v) {
       const av = Math.abs(v);
       let e = o.shape === 2 ? 1 - Math.pow(av, 1.8) * 0.9 : o.shape === 1 ? Math.sqrt(Math.max(0.02, 1 - av * av * 0.62)) : 1 - av * av * 0.22;
-      if (o.frill) e += (o.frill * o.wid * (0.09 * Math.sin(v * o.frillF * Math.PI + o.ph) + 0.05 * Math.sin(v * o.frillF * 2.3 + o.ph2) + 0.03 * Math.sin(v * o.frillF * 4.1 + o.ph * 2))) / o.len;
+      // shallow enough (depth well under a third of the wavelength) to read as ruffles, not saw teeth
+      if (o.frill) e += (o.frill * o.wid * (0.055 * Math.sin(v * o.frillF * Math.PI + o.ph) + 0.03 * Math.sin(v * o.frillF * 2.3 + o.ph2) + 0.012 * Math.sin(v * o.frillF * 4.1 + o.ph * 2))) / o.len;
       return clamp(e, 0.05, 1.1);
     }
     // the same outline without the frill, for fibres that must stay clear of the torn edge
@@ -1129,7 +1136,8 @@ function GEN() {
         b.pt(k, A[0] + n[0] * lift * 1.4 + tu[0] * c + tw[0] * s, A[1] + n[1] * lift * 1.4 + tu[1] * c + tw[1] * s, A[2] + n[2] * lift * 1.4 + tu[2] * c + tw[2] * s, WHITE, 1.4 * (0.5 + t), 0.6 + 0.5 * t, 0.2, 0.9, o.drift);
       }
       b.end();
-      b.tag(s0, b.s, null, 1);
+      // dew on a guard petal that can come loose belongs to that petal's release group
+      b.tag(s0, b.s, o.grp || null, 1);
     }
 
     // ---- leaves: a pair of white wings just under the collar, each two broad toothed lobes, veined and stippled
@@ -1206,14 +1214,15 @@ function GEN() {
     ringP.forEach((o, i) => {
       // four guard petals on the outer ring may come loose and drift as one piece (release groups 1-4)
       const s0 = b.s; petal(o, nP[i]);
-      if (o.ring === 0 && i < 4) b.tag(s0, b.s, i + 1, null);
+      if (o.ring === 0 && i < 4) { o.grp = i + 1; b.tag(s0, b.s, o.grp, null); }
     });
     b.part('petaloidea'); crownP.forEach((o, i) => petal(o, nP[ringP.length + i]));
     b.part('stamina'); for (let i = 0; i < nSta; i++) stamen();
     b.part('gutta');
-    const wet = ringP.filter((o) => o.ring < 2 && Math.cos(o.az - azView) > 0.55);
-    for (let i = 0; i < nDewS >> 1; i++) dewDrop(wet.length ? wet[(r() * wet.length) | 0] : looseP[0]);
-    if (nDewS & 1) hair(looseP[0]);
+    // dew only on petals emitted before the head nods below, so drops rotate with their petal
+    const wet = ringP.filter((o) => o.ring < 2 && Math.cos(o.az - azView) > 0.55), pool = wet.length ? wet : ringP.length ? ringP : sepP;
+    for (let i = 0; i < nDewS >> 1; i++) { if (pool.length) dewDrop(pool[(r() * pool.length) | 0]); else { b.end(); b.end(); } }
+    if (nDewS & 1) b.end();
     b.part('sepala'); sepP.forEach((o, i) => petal(o, sepN[i]));
     // the whole head nods about the receptacle
     const sHead = b.s, P = b.P, pv = [ax, yR, 0];
@@ -2087,7 +2096,7 @@ function GEN() {
         for (let m = 0; m < nSeg[i]; m++) {
           const jl = g() * 0.0022, bright = sg[4] * (0.75 + 0.4 * r()), ph = r();
           for (let k = 0; k < K; k++) {
-            const q = k ? clamp((k - 1 + ph) / (K - 1.5), 0, 1) : 0, rho = lerp(sg[2], sg[3], q), a = lerp(sg[0], sg[1], sstep(0, 1, q)) + jl / Math.max(rho, 0.02), p = LP(rho, a, 0.002);
+            const q = k ? clamp((k - 1 + ph) / (K - 1.5), 0, 1) : 0, a = lerp(sg[0], sg[1], sstep(0, 1, q)), rho = Math.min(lerp(sg[2], sg[3], q), rimR(a) * 0.98), p = LP(rho, a + jl / Math.max(rho, 0.02), 0.002); // veins stop at the rim, notch included
             b.pt(k, p[0], p[1], p[2], mix(cVein, C.leaf, 0.35 * (rho / Rr)), 0.75 * bright * sstep(0.02 * Rr, 0.14 * Rr, rho), 0.55, 0.05 * (rho / Rr), 0.85, 0);
           }
           b.end();
@@ -2666,7 +2675,8 @@ function GEN() {
 
     // --- the golden capitulum on a second, shorter scape leaning the other way ------------------------------
     if (nCap) {
-      const F = [-0.6, -0.46, 0.42], nf = norm([0.12, 0.81, 0.57]), [e1, e2] = frame(nf);
+      // kept well below the clock so it reads as a second head, and stays out of the clock's measured width
+      const F = [-0.6, Math.min(-0.62, H[1] - 0.68), 0.42], nf = norm([0.12, 0.81, 0.57]), [e1, e2] = frame(nf);
       const nCs = Math.round(nScape * 0.3);
       b.part('scapus');
       tube(cub([-0.02, y0, 0.03], [-0.04, y0 + 0.4, 0.06], add(F, nf, -0.42), add(F, nf, -0.03)), thick * 0.8, thick * 0.7, nCs, 0.5);
@@ -2760,7 +2770,9 @@ function GEN() {
         b.tag(s0, b.s, 1 + i, null);
       }
       if (D > 0) {
-        // one has already landed, lying on the floor among the leaves
+        // one has already landed, lying on the floor among the leaves (its own part, so the
+        // diaspora callout points into the stream rather than at the floor)
+        b.part('semen');
         const s0 = b.s;
         diaspore([0.92, -1.36, 0.42], norm([-0.55, 0.22, 0.7]), Lb, La, Bf, 0);
         b.tag(s0, b.s, D + 1, null);
@@ -2768,7 +2780,9 @@ function GEN() {
     }
 
     // --- the clock: achenes, beaks and parachutes, each seed its own release group ------------------------------
-    const gid = (i) => { const lo = Dn + 1; return lo + (i % Math.max(1, 255 - lo + 1)); };
+    // ids run out at 255: head is sorted from the bald patch outward, so only the seeds nearest the
+    // patch get one; the rest stay put rather than share an id with a seed across the clock
+    const gid = (i) => { const lo = Dn + 1; return i < 256 - lo ? lo + i : 0; };
     head.forEach((p) => { const [u, w] = frame(p.d); p.u = u; p.w = w; p.O = add(H, p.d, 0.76 * Rs * (0.97 + 0.06 * r())); });
     b.part('achenium');
     head.forEach((p, i) => { const s0 = b.s; achene(p.at, p.d, p.u, p.w, La, 0.0065 * (Rs / 0.46), 0); b.tag(s0, b.s, gid(i), null); });
@@ -3092,7 +3106,7 @@ vec3 shade(vec3 c, vec3 p, vec3 T, vec3 N, float wN, float depth) {
     float nl = dot(N, uKey);
     diff = mix(diff, clamp(nl * 0.5 + 0.5, 0.0, 1.0), wN);
     glow = mix(glow, max(0.0, -dot(N, uBack)), wN);    // translucency: light through the petal
-    rim = wN * pow(1.0 - abs(dot(N, V)), 3.0);         // grazing sheen along folds and margins
+    rim = wN * pow(max(0.0, 1.0 - abs(dot(N, V))), 3.0);         // grazing sheen along folds and margins
     spec *= mix(1.0, smoothstep(-0.2, 0.3, nl), wN);
   }
   float l = luma(c);
@@ -3185,7 +3199,7 @@ void main() {
   float far = mix(1.0, 0.6, smoothstep(uFocus - 0.5, uFocus + 1.0, depth));
   vAlpha = (core * core) / (size * size) * kernelNorm(vShape) * far * (1.0 - 0.8 * holdout(p)) * mix(1.0, 0.45, inner);
   // a few hair tips shimmer
-  vAlpha *= 1.0 + tip * step(0.9, rnd) * pow(0.5 + 0.5 * sin(uTime * 1.7 + rnd * 800.0), 12.0) * 2.0 * uMotion;
+  vAlpha *= 1.0 + tip * step(0.9, rnd) * pow(max(0.0, 0.5 + 0.5 * sin(uTime * 1.7 + rnd * 800.0)), 12.0) * 2.0 * uMotion;
 
   vec3 col = shade(c.rgb, p, T, N, wN, depth);
   col = mix(col, vec3(max(col.r, max(col.g, col.b))), 0.25 * tip * fiber);   // tips catch the light white
@@ -3196,7 +3210,7 @@ void main() {
     float h = float((uint(id >> 4) * 2654435761u) >> 8) / 16777216.0;
     vec3 fn = normalize(vec3(fract(h * 17.0) - 0.5, fract(h * 31.0) - 0.15, fract(h * 47.0) - 0.5));
     float flash = pow(max(0.0, dot(reflect(normalize(p - cameraPosition), fn), uKey)), 24.0);
-    float tw = pow(0.5 + 0.5 * sin(uTime * (1.1 + 2.0 * h) + h * 90.0), 10.0) * uMotion;
+    float tw = pow(max(0.0, 0.5 + 0.5 * sin(uTime * (1.1 + 2.0 * h) + h * 90.0)), 10.0) * uMotion;
     col = mix(col, vec3(luma(col)) + 0.15, 0.5 * aux.w);
     vAlpha *= 1.0 + 2.0 * aux.w;
     if (k == 15) {
@@ -3226,7 +3240,8 @@ void main() {
     float cw = vShape.x * vShape.x, len = vShape.z * 0.16;
     float rays = exp(-q.x / len - q.y * q.y / cw) + exp(-q.y / len - q.x * q.x / cw);
     float core = exp(-dot(q, q) / cw);
-    vec3 ring = vec3(0.45, 0.7, 1.0) * exp(-pow(sqrt(r2) - 0.42, 2.0) * 300.0) * 0.07;
+    float re = sqrt(r2) - 0.42;   // squared directly: pow() with a negative base is undefined
+    vec3 ring = vec3(0.45, 0.7, 1.0) * exp(-re * re * 300.0) * 0.07;
     gl_FragColor = vec4((normalize(vColor + 0.05) * 0.9 * (core * 1.3 + rays * 1.5) + ring) * vGlint * uStar, 1.0);
     return;
   }
@@ -3621,7 +3636,7 @@ const atmo = {
     fragmentShader: /* glsl */ `uniform vec3 uLamp; uniform float uHalf, uOpacity; varying vec3 vW; varying vec3 vN; varying vec2 vUv;
 void main() {
   vec3 V = normalize(cameraPosition - vW);
-  float fres = 0.03 + 0.97 * pow(1.0 - abs(V.y), 5.0);
+  float fres = 0.03 + 0.97 * pow(max(0.0, 1.0 - abs(V.y)), 5.0);
   vec2 e = abs(vW.xz) / uHalf;
   float bevel = smoothstep(0.985, 1.0, max(e.x, e.y));
   float r = length(vW.xz);
@@ -3669,7 +3684,7 @@ void main() {
     fragmentShader: /* glsl */ `uniform vec3 uColor; uniform float uOpacity; varying vec3 vW; varying vec3 vN; varying vec2 vUv;
 void main() {
   vec3 V = normalize(cameraPosition - vW), N = normalize(vN);
-  float fres = 0.1 + 0.9 * pow(1.0 - abs(dot(N, V)), 4.0);
+  float fres = 0.1 + 0.9 * pow(max(0.0, 1.0 - abs(dot(N, V))), 4.0);
   float s = vUv.x * 0.85 + vUv.y * 0.5 - 0.68 + dot(V, cross(N, vec3(0.0, 1.0, 0.0))) * 0.9;
   float streak = exp(-s * s * 36.0) + 0.7 * exp(-(s - 0.17) * (s - 0.17) * 900.0);
   gl_FragColor = vec4(uColor * uOpacity * fres * (0.12 + streak) * smoothstep(0.0, 0.12, vUv.y), 1.0);
@@ -3854,7 +3869,7 @@ class Herbarium {
 
     // fibers: Catmull-Rom hairlines, uSub sub-steps per span. No vertex data at all —
     // the shader derives strand, span and sub-step from gl_VertexID.
-    this.sub = size > 512 || coarse ? 2 : 3;
+    this.sub = size >= 512 || coarse ? 2 : 3;   // curve sub-steps per span: 3 only where strands are few
     const lg = new THREE.BufferGeometry();
     lg.setDrawRange(0, this.S * (K - 1) * this.sub * 2);
     this.lineMat = new THREE.ShaderMaterial({
@@ -4059,7 +4074,7 @@ class Herbarium {
   dispose() {
     scene.remove(this.points, this.lines, this.mirror);
     this.points.geometry.dispose(); this.lines.geometry.dispose(); this.pointMat.dispose(); this.lineMat.dispose(); this.mirrorMat.dispose();
-    this.tPos.dispose(); this.tCol.dispose(); this.tAux.dispose(); this.gpu.dispose();
+    this.tPos.dispose(); this.tCol.dispose(); this.tAux.dispose(); this.tGroups.dispose(); this.gpu.dispose();
   }
 }
 
@@ -4607,6 +4622,7 @@ function autoQuality() {
     receptaculum: '花托', involucrum: '总苞', capitulum: '头状花序', pappus: '冠毛', achenium: '瘦果', fructus: '果实', semen: '种子',
     alabastrum: '花苞', gemma: '芽', aculei: '皮刺', spinae: '刺', radix: '根', rhizoma: '根茎', 'petala-lapsa': '落瓣',
     aqua: '水面', odonata: '蜻蜓', gutta: '露珠', guttae: '露珠', pollen: '花粉',
+    petaloidea: '瓣化雄蕊', rostrum: '喙', diaspora: '飞散种子', 'folium-natans': '浮叶', 'folium-novum': '卷叶',
   };
   const GLOSS_KIND = {
     lotus: { receptaculum: '莲蓬', folium: '荷叶', fructus: '莲子', alabastrum: '菡萏' },
