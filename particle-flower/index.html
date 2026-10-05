@@ -332,6 +332,7 @@ body.bare .hud:not(.keep) { opacity: 0; visibility: hidden; }
 .poem.leave { opacity: 0; }
 .poem.crowded { opacity: 0; transition-duration: 0.8s; }
 body:has(#tune:not([hidden])) .poem { opacity: 0; }
+body.tune-open .poem { opacity: 0; } /* separate rule: browsers without :has() drop the line above */
 .poem .col { writing-mode: vertical-rl; white-space: nowrap; line-height: 1; }
 .poem .name {
   font: 400 2.3em/1 var(--brush); letter-spacing: 0.06em; color: rgba(243, 244, 248, 0.88);
@@ -689,6 +690,10 @@ function GEN() {
       this.g = () => (r() + r() + r() - 1.5) * 1.15;
       this.focus = [0, 0, 0];
       this.parts = []; // [name, first strand] — see part()
+      // The renderer dims every particle by (262K / N)^0.8 because most structures gain strands with N.
+      // Structures with a fixed strand count (dew, achenes, the dragonfly) set fixed = true while they
+      // emit, and get this factor back so they look the same at every quality level.
+      this.fix = Math.pow(this.S / 16384, 0.8); this.fixed = false;
     }
     // Start a named botanical part (petala, sepala, stamina, caulis, folium, …) at the current strand.
     // build() turns each part into an anchor point that the specimen callouts point at.
@@ -697,6 +702,7 @@ function GEN() {
       if (this.s >= this.S) return;
       const i = (this.s * K + k) * 4;
       this.P[i] = x; this.P[i + 1] = y; this.P[i + 2] = z; this.P[i + 3] = flex;
+      if (this.fixed) gain *= this.fix;
       this.C[i] = c[0] * gain; this.C[i + 1] = c[1] * gain; this.C[i + 2] = c[2] * gain; this.C[i + 3] = size;
       this.A[i] = line; this.A[i + 1] = drift || 0;
     }
@@ -970,7 +976,7 @@ function GEN() {
       b.end();
       // a few hairs on the lit side carry a bead of dew
       const dx = A[0] - ax, dy = A[1] - cY, dz = A[2];
-      if (!o.lit && r() < 0.06 && dx * VIEWL[0] + dy * VIEWL[1] + dz * VIEWL[2] > 0.35 * Math.hypot(dx, dy, dz)) b.tag(b.s - 1, b.s, null, 0.35);
+      if (!o.lit && r() < (0.06 * 16384) / b.S && dx * VIEWL[0] + dy * VIEWL[1] + dz * VIEWL[2] > 0.35 * Math.hypot(dx, dy, dz)) b.tag(b.s - 1, b.s, null, 0.35);
     }
     // one petal in exactly n strands: radial fibres, margins, cross-fibres, veins and hairs
     function petal(o, n) {
@@ -1124,6 +1130,7 @@ function GEN() {
     }
     // ---- dew: a tiny glassy ring and its bright core resting on a petal that faces the viewer
     function dewDrop(o) {
+      b.fixed = true;
       const v = (r() - 0.5) * 1.1, u = 0.55 + 0.3 * r(), [tu, , n] = frame(o, v, u), tw = cross(n, tu), A = [H0[0], H0[1], H0[2]];
       const rad = (0.011 + 0.007 * r()) * R, lift = rad * 0.6, s0 = b.s, cRing = mix(o.cTip, WHITE, 0.6);
       for (let k = 0; k < K; k++) {
@@ -1138,6 +1145,7 @@ function GEN() {
       b.end();
       // dew on a guard petal that can come loose belongs to that petal's release group
       b.tag(s0, b.s, o.grp || null, 1);
+      b.fixed = false;
     }
 
     // ---- leaves: a pair of white wings just under the collar, each two broad toothed lobes, veined and stippled
@@ -1501,7 +1509,7 @@ function GEN() {
         const v = (2 * r() - 1) * 0.95, e = edgeOf(o, v), u = e * (0.05 + 0.85 * r());
         pos(o, v, u, e, 0, Pt); at(o, v, u, e, -0.02, Pn);
         const d = norm([Pn[0] - Pt[0] + g() * 0.008, Pn[1] - Pt[1] + g() * 0.008, Pn[2] - Pt[2] + g() * 0.008]);
-        gland(Pt, d, R * (0.01 + 0.012 * r()), scale(C.sepal, 0.9), mix(C.thorn, C.hip, 0.5), 0.55 + 0.3 * r(), r() < 0.25 ? 0.3 : 0);
+        gland(Pt, d, R * (0.01 + 0.012 * r()), scale(C.sepal, 0.9), mix(C.thorn, C.hip, 0.5), 0.55 + 0.3 * r(), r() < (0.25 * 16384) / b.S ? 0.3 : 0);
       }
     }
 
@@ -1641,6 +1649,7 @@ function GEN() {
     const e1 = norm(cross(VIEW, [0, 1, 0])), e2 = cross(e1, VIEW);
     function bead(c, rad, tint, group) {
       const s0 = b.s;
+      b.fixed = true;
       const ring = (cx, rr, a0, span, gain, glint, size) => {
         for (let k = 0; k < K; k++) {
           const a = a0 + (span * k) / (K - 1);
@@ -1654,6 +1663,7 @@ function GEN() {
       ring(axpy(c, e2, -rad * 0.25, Pn), rad * 0.6, Math.PI * 1.05, Math.PI * 0.9, 0.9, 0.4, 0.55);
       ring(axpy(axpy(c, e2, rad * 0.45, [0, 0, 0]), e1, -rad * 0.4, Pn), rad * 0.18, 0, TAU, 1.4, 0.8, 0.6);
       if (group) b.tag(s0, b.s, group, null);
+      b.fixed = false;
     }
 
     // ---- the hip: last year's fruit on a side shoot, tomato-shaped, crowned by its dry sepals --------
@@ -1739,7 +1749,7 @@ function GEN() {
       // glandular bristles on the pedicel, a few catching the light
       for (let i = 0; i < nGl; i++) {
         const c = shoot(0.35 + 0.65 * r()), d = norm([g(), g() + 0.3, g()]);
-        gland(c, d, 0.008 + 0.008 * r(), mix(C.sepal, C.thorn, 0.4), mix(C.thorn, C.hip, 0.5), 0.5 + 0.3 * r(), r() < 0.3 ? 0.3 : 0);
+        gland(c, d, 0.008 + 0.008 * r(), mix(C.sepal, C.thorn, 0.4), mix(C.thorn, C.hip, 0.5), 0.5 + 0.3 * r(), r() < (0.3 * 16384) / b.S ? 0.3 : 0);
       }
     }
 
@@ -1936,6 +1946,7 @@ function GEN() {
     // closed by a specular fleck; the strand tip is the glint the renderer may flare
     const VW = norm([0.59, 0.28, 0.76]), E1 = norm(cross([0, 1, 0], VW)), E2 = cross(VW, E1);
     function bead(c, rb, gain, under) {
+      b.fixed = true;
       for (let k = 0; k < K; k++) {
         if (k < 14) {
           const q = (k / 13) * TAU, cs = Math.cos(q), sn = Math.sin(q);
@@ -1946,6 +1957,7 @@ function GEN() {
         }
       }
       b.end();
+      b.fixed = false;
     }
 
     // ---- budget: the dragonfly and dew are counted structures, the rest splits by weight
@@ -2232,6 +2244,7 @@ function GEN() {
     // segments and four veined wings held flat and a little forward, shimmering cyan to violet
     b.part('odonata');
     if (nFly) {
+      b.fixed = true;
       const s0 = b.s, yaw = -0.06, pitch = 0.12, roll = 0.38;
       let f = [Math.cos(yaw), 0, Math.sin(yaw)], u = [0, 1, 0], s = cross(f, u);
       { const c = Math.cos(pitch), sn = Math.sin(pitch), f2 = [0, 1, 2].map((i) => f[i] * c + u[i] * sn); u = [0, 1, 2].map((i) => u[i] * c - f[i] * sn); f = f2; }
@@ -2316,6 +2329,7 @@ function GEN() {
         }
       }
       b.tag(s0, b.s, 2, null);
+      b.fixed = false;
     }
 
     // a petal already fallen, afloat on the water, free to turn on the current
@@ -2329,8 +2343,8 @@ function GEN() {
         fd.push(petalDesc({ T: [at[0], W0 + 0.012, at[1]], x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }, { az, len: 0.38 * R, wid: 0.115 * R, th0: Math.PI / 2 - 0.1, th1: Math.PI / 2 - 0.02, bend: 1, hood: 0.35, cup: 0.42, wave: 0.06, wrap: 0, gain: 0.26, cM: mix(C.base, C.petal, 0.8), drift: 0.3, flex: 0.2 }));
       }
       const nf = alloc(nFal, fd.map(() => 1));
-      fd.forEach((d, i) => petal(d, nf[i]));
-      b.tag(f0, b.s, 1, null);
+      // each fallen petal is its own piece on the water (group 2 is the dragonfly)
+      fd.forEach((d, i) => { const s0 = b.s; petal(d, nf[i]); b.tag(s0, b.s, i === 0 ? 1 : 2 + i, null); });
     }
 
     // water: fine concentric ripples round every stalk and round the floating petal, crests glittering
@@ -2539,6 +2553,7 @@ function GEN() {
     // ribbed achene: three ribs that break into tiny spinules toward the apex
     function achene(S0, d, u, w, La, aw, drift, boost = 1) {
       const ph = r() * TAU;
+      b.fixed = true;
       for (let i = 0; i < 3; i++) {
         const bright = 0.8 + 0.4 * r();
         for (let k = 0; k < K; k++) {
@@ -2550,16 +2565,19 @@ function GEN() {
         }
         b.end();
       }
+      b.fixed = false;
     }
     // slender beak (rostrum) from the achene apex to the pappus
     function beak(A0, A1, bow, drift, boost = 1) {
       const bright = 0.8 + 0.4 * r();
+      b.fixed = true;
       for (let k = 0; k < K; k++) {
         const t = k / (K - 1), s = Math.sin(Math.PI * t);
         pt(k, lerp(A0[0], A1[0], t) + bow[0] * s, lerp(A0[1], A1[1], t) + bow[1] * s, lerp(A0[2], A1[2], t) + bow[2] * s,
           mix(C.spine, C.beak, sstep(0, 0.15, t)), 0.2 * bright * boost * (k === K - 1 ? 1.6 : 1), k === K - 1 ? 0.6 : 0.4, 0.04 + 0.08 * t, 0.8, drift);
       }
       b.end();
+      b.fixed = false;
     }
     // pappus: a flat-topped parachute. Each bristle rises a little off the beak, splays almost flat,
     // then lifts its tip, which carries one bead.
@@ -2581,7 +2599,7 @@ function GEN() {
           pt(k, x + g() * jt, y + g() * jt, z + g() * jt, C.pappus, 0.36 * bright * fade * (tip ? 2.4 : 1), tip ? 0.95 : 0.42, 0.05 + 0.25 * t * t, 0.85, drift);
         }
         b.end();
-        if (r() < glint) b.tag(b.s - 1, b.s, null, 0.15 + 0.12 * r());
+        if (r() < (glint * 16384) / b.S) b.tag(b.s - 1, b.s, null, 0.15 + 0.12 * r());
       }
     }
     // one whole diaspore (achene + beak + pappus) along axis d, pappus at O
@@ -2803,22 +2821,25 @@ function GEN() {
     const t0 = Date.now();
     cfg = cfg && typeof cfg === 'object' ? cfg : {};
     const kind = KINDS[cfg.flower] ? cfg.flower : 'peony';
-    const b = new Builder(N, Math.round(num(cfg.seed, 7, 0, 1e9)));
+    const seed = Math.round(num(cfg.seed, 7, 0, 1e9)), b = new Builder(N, seed);
     KINDS[kind](b, cfg);
     // anchor per part: the strand tip of that part that faces the default camera most (azimuth 38°)
     const anchors = {};
     b.parts.forEach(([name, from], i) => {
       const to = Math.min(i + 1 < b.parts.length ? b.parts[i + 1][1] : b.s, b.S), step = Math.max(1, ((to - from) / 600) | 0);
-      let best = -1e9, at = null;
+      // prefer tips that stay put: a callout should not point at a petal or seed that may drift away
+      let best = -1e9, at = null, bestM = -1e9, atM = null;
       for (let s = from; s < to; s += step) {
         const j = (s * K + K - 1) * 4;
         if (b.C[j + 3] <= 0) continue;
         const score = b.P[j] * 0.62 + b.P[j + 2] * 0.79;
-        if (score > best) { best = score; at = [b.P[j], b.P[j + 1], b.P[j + 2]]; }
+        if (b.A[j + 2] > 0 || b.A[j + 1] > 0.001) { if (score > bestM) { bestM = score; atM = [b.P[j], b.P[j + 1], b.P[j + 2]]; } }
+        else if (score > best) { best = score; at = [b.P[j], b.P[j + 1], b.P[j + 2]]; }
       }
+      at = at || atM;
       if (at && !anchors[name]) anchors[name] = at;
     });
-    return { P: b.P, C: b.C, A: b.A, kind, strands: Math.min(b.s, b.S), focus: b.focus, anchors, ms: Date.now() - t0 };
+    return { P: b.P, C: b.C, A: b.A, kind, seed, strands: Math.min(b.s, b.S), focus: b.focus, anchors, ms: Date.now() - t0 };
   }
   return { build, K, kinds: Object.keys(KINDS) };
 }
@@ -3905,8 +3926,10 @@ class Herbarium {
     this.tPos.image.data = res.P; this.tCol.image.data = res.C; this.tAux.image.data = res.A;
     this.tPos.needsUpdate = this.tCol.needsUpdate = this.tAux.needsUpdate = true;
     this.strands = res.strands; this.ready = true;
+    this.carry = true; // an edit of the same specimen keeps pieces that are in flight; morph() cancels this
   }
   morph(t, stagger) {
+    this.carry = false;
     const u = this.vel.material.uniforms;
     u.uMorphStart.value = t; u.uStagger.value = stagger;
     // leaving a grown specimen (rather than the galaxy), the old shape sheds like ink in water first
@@ -3918,6 +3941,7 @@ class Herbarium {
       this.gpu.renderTexture(tex, v.renderTargets[0]); this.gpu.renderTexture(tex, v.renderTargets[1]);
     }
     this.fromGalaxy = true;
+    this.grpSrc = null; // rescan on the next step, dropping every flight
     this.morph(t, 1);
   }
   settle() {
@@ -3961,7 +3985,11 @@ class Herbarium {
     const upTurn = (a, k) => { const s = Math.hypot(a[0], a[2]), th = Math.acos(Math.max(-1, Math.min(1, a[1]))) * k; return s < 1e-5 ? [0, 0, 0] : [(-a[2] / s) * th, 0, (a[0] / s) * th]; };
     const kind = state.kind, f = state.focus, floor = kind === 'lotus' ? -1.315 : -1.425;
     this.vel.material.uniforms.uFloor.value = floor;
-    this.tGroups.image.data.fill(-1e5); this.tGroups.needsUpdate = true;
+    // after an edit of the same specimen, pieces still in flight keep their timeline (matched by id and
+    // place) instead of snapping home; a new specimen or a regrow starts with every group at rest
+    const G = this.tGroups.image.data, R = 256 * 4, old = new Map();
+    if (this.carry) for (const g of this.groups) if (g.busy > t) old.set(g.id, { g, row: [0, 1, 2].map((r) => G.slice(r * R + g.id * 4, r * R + g.id * 4 + 4)) });
+    G.fill(-1e5); this.tGroups.needsUpdate = true;
     this.groups = [];
     for (let id = 1; id < 256; id++) {
       const o = id * 10, n = M[o];
@@ -3974,7 +4002,13 @@ class Herbarium {
       // away from the head, so the radial direction is their axis even when two seeds share an id)
       let a = head ? [dx / dist, dy / dist, dz / dist] : mode === 2 ? ax[2] : ax[0];
       if (a[1] < 0 && !head) a = [-a[0], -a[1], -a[2]];
-      this.groups.push({ id, piv: c, n, ext: Math.sqrt(Math.max(0, cov[0] + cov[1] + cov[2])), mode, head, turn: upTurn(a, mode === 2 ? 0.85 : 1), busy: 0 });
+      const grp = { id, piv: c, n, ext: Math.sqrt(Math.max(0, cov[0] + cov[1] + cov[2])), mode, head, turn: upTurn(a, mode === 2 ? 0.85 : 1), busy: 0 };
+      const was = old.get(id);
+      if (was && Math.hypot(c[0] - was.g.piv[0], c[1] - was.g.piv[1], c[2] - was.g.piv[2]) < 0.08) {
+        was.row.forEach((v, r) => G.set(v, r * R + id * 4));
+        grp.busy = was.g.busy;
+      }
+      this.groups.push(grp);
     }
     this.relNext = t + 10 + 10 * Math.random();
   }
@@ -4074,6 +4108,7 @@ class Herbarium {
   dispose() {
     scene.remove(this.points, this.lines, this.mirror);
     this.points.geometry.dispose(); this.lines.geometry.dispose(); this.pointMat.dispose(); this.lineMat.dispose(); this.mirrorMat.dispose();
+    for (const v of [this.vel, this.pos, this.col]) v.material.dispose();
     this.tPos.dispose(); this.tCol.dispose(); this.tAux.dispose(); this.tGroups.dispose(); this.gpu.dispose();
   }
 }
@@ -4082,14 +4117,28 @@ class Herbarium {
    Shape builds (worker when available)
    ===================================================================== */
 const GEN_LOCAL = GEN();
-let worker = null;
+// At most one build runs in the worker; requests made meanwhile collapse into the newest one, so
+// scrubbing a number shows each finished build instead of queueing dozens of stale ones.
+let worker = null, inflight = null, pending = null, watchdog = 0;
+function post(req) {
+  inflight = req;
+  worker.postMessage(req);
+  // a worker that never answers hands the job to the main thread for good
+  clearTimeout(watchdog);
+  watchdog = setTimeout(() => { if (inflight === req) { worker = null; inflight = pending = null; runLocal(state.lastReq); } }, 6000);
+}
 try {
   const src = `const G = (${GEN.toString()})();\nonmessage = (e) => { const { id, cfg, N } = e.data; const r = G.build(cfg, N); postMessage({ id, N, ...r }, [r.P.buffer, r.C.buffer, r.A.buffer]); };`;
   worker = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
-  worker.onmessage = (e) => onBuilt(e.data);
-  worker.onerror = () => { worker = null; if (state.lastReq) runLocal(state.lastReq); };
+  worker.onmessage = (e) => {
+    clearTimeout(watchdog);
+    inflight = null;
+    onBuilt(e.data);
+    if (pending && worker) { const p = pending; pending = null; if (p === state.lastReq) post(p); }
+  };
+  worker.onerror = () => { clearTimeout(watchdog); worker = null; inflight = pending = null; if (state.lastReq) runLocal(state.lastReq); };
 } catch { worker = null; }
-function runLocal(req) { setTimeout(() => onBuilt({ id: req.id, N: req.N, ...GEN_LOCAL.build(req.cfg, req.N) }), 0); }
+function runLocal(req) { setTimeout(() => { if (req && req === state.lastReq) onBuilt({ id: req.id, N: req.N, ...GEN_LOCAL.build(req.cfg, req.N) }); }, 0); }
 
 /* =====================================================================
    App state
@@ -4113,18 +4162,19 @@ function requestBuild(cfg, dissolve) {
   state.lastReq = req;
   if (dissolve) state.dissolve = true;
   setStatus('busy', '生长中…');
-  if (worker) {
-    worker.postMessage(req);
-    setTimeout(() => { if (worker && state.lastReq === req && req.id > (state.appliedId || 0)) { worker = null; runLocal(req); } }, 4000);
-  } else runLocal(req);
+  if (!worker) runLocal(req);
+  else if (inflight) pending = req;
+  else post(req);
 }
 function onBuilt(res) {
-  if (res.id !== state.buildId || res.N !== herb.N) return;
+  // never apply a build twice or out of order; an older result may still show while edits continue,
+  // but a pending specimen change (dissolve) waits for its own build
+  if (res.N !== herb.N || res.id <= (state.appliedId || 0) || (state.dissolve && res.id !== state.buildId)) return;
   state.appliedId = res.id;
   const first = !herb.ready;
   herb.setTargets(res);
   state.focus.fromArray(res.focus);
-  if (first) {
+  if (first || (state.dissolve && reduceMotion)) {
     if (reduceMotion) herb.settle(); else herb.morph(state.simT, 1);
   } else if (state.dissolve) {
     herb.morph(state.simT, 0.8);
@@ -4132,6 +4182,7 @@ function onBuilt(res) {
   }
   state.dissolve = false;
   state.anchors = res.anchors || {};
+  state.seed = res.seed;
   setKind(res.kind);
   for (const f of buildHooks) f(res);
   setStatus('ok', `已生长 · ${herb.N.toLocaleString('en-US')} 粒子 · ${res.strands.toLocaleString('en-US')} 纤维 · ${res.ms} ms`);
@@ -4377,7 +4428,7 @@ setQuality(state.quality, false);
 
 function setSpin(on) { state.spin = on; $('#btn-spin').setAttribute('aria-pressed', String(on)); }
 const tuneEl = $('#tune');
-function setTune(open) { tuneEl.hidden = !open; $('#btn-tune').setAttribute('aria-expanded', String(open)); if (open) $('#hint').classList.add('gone'); }
+function setTune(open) { tuneEl.hidden = !open; body.classList.toggle('tune-open', open); $('#btn-tune').setAttribute('aria-expanded', String(open)); if (open) $('#hint').classList.add('gone'); }
 function setCode(open) {
   if (narrowMQ.matches) { body.classList.toggle('code-open', open); body.classList.remove('code-closed'); }
   else body.classList.toggle('code-closed', !open);
@@ -4658,8 +4709,8 @@ function autoQuality() {
     svg.innerHTML = `<path d="${d}"/>`;
   }
   function updateSlip() {
-    const sp = SPECIMENS[state.kind] || SPECIMENS.peony, s = state.lastCfg ? Math.abs(Math.round(+state.lastCfg.seed)) : 7;
-    const acc = `${sp.no}-${pad(Number.isFinite(s) ? s : 0, 4)}`;
+    const sp = SPECIMENS[state.kind] || SPECIMENS.peony, s = Number.isFinite(state.seed) ? state.seed : 7; // the seed GEN actually grew
+    const acc = `${sp.no}-${pad(s, 4)}`;
     $('#catalog').textContent = `TAB. ${ROMAN[+sp.no - 1] || sp.no} · PF-${sp.no} · capsa 29 × 29 × 29 cm · ${isoDay} · ${herb.N.toLocaleString('en-US')} pt`;
     if (acc === art.acc) return;
     art.acc = acc;
@@ -4980,7 +5031,7 @@ function autoQuality() {
   /* ---------- code to specimen: the caret's key lights its part on the plate ---------- */
   const KEY_PART = {
     bloom: 'petala', petal: 'petala', base: 'petala', tip: 'petala', sepal: 'sepala', core: 'stamina', stamen: 'stamina',
-    stem: 'caulis', leaves: 'folium', leaf: 'folium', pod: 'receptaculum', water: 'aqua', seed: 'pappus', seeds: 'pappus',
+    stem: 'caulis', leaves: 'folium', leaf: 'folium', pod: 'receptaculum', water: 'aqua',
     pappus: 'pappus', achene: 'pappus', spread: 'pappus', drifting: 'pappus', thorn: 'aculei', bud: 'alabastrum',
   };
   const ALT = { caulis: ['scapus'], petala: ['pappus', 'capitulum', 'receptaculum'], stamina: ['receptaculum', 'capitulum'], pappus: ['capitulum', 'receptaculum'] };
@@ -4995,7 +5046,9 @@ function autoQuality() {
       if (m[1].length === 2) top = m[2];
       else if (m[1].length >= 4 && i === lines.length - 1) inner = m[2];
     }
-    let part = top === 'palette' ? KEY_PART[inner] : top === 'leaves' && inner === 'bud' ? 'alabastrum' : KEY_PART[top];
+    // the top-level "seed" is the random seed, not a plant part; bloom.seeds and friends mean the seed head
+    let part = top === 'palette' ? KEY_PART[inner] : top === 'leaves' && inner === 'bud' ? 'alabastrum'
+      : top === 'bloom' && /^(seeds|pappus|spread|drifting|blown)$/.test(inner || '') ? 'pappus' : KEY_PART[top];
     const has = (n) => art.labels.some((l) => l.name === n);
     if (part && !has(part)) part = (ALT[part] || []).find(has) || null;
     return part || null;
