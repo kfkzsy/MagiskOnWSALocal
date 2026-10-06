@@ -413,6 +413,18 @@ body.tune-open .poem { opacity: 0; } /* separate rule: browsers without :has() d
   .hud.plate, .poem, .poem .ink, .poem .seal, .plate .cl, .plate .lead, .plate .ring, .plate .cl text { transition: none !important; }
   .poem .seal::after, .plate .cl.hot .ring { animation: none !important; }
 }
+/* layout fixes from the UI review */
+.mini { flex: none; white-space: nowrap; }
+@media (min-width: 861px) and (max-width: 1100px) { .lights { display: none; } .tab { padding: 0 9px; } }
+/* masks reach the corners, so case edges and fallen petals never run through the lettering */
+.specimen::before { background: radial-gradient(farthest-corner, rgba(4, 5, 7, 0.86), rgba(4, 5, 7, 0.72) 55%, transparent 80%); }
+.poem::before { inset: -40px -34px -36px -84px; background: radial-gradient(farthest-side, rgba(4, 5, 7, 0.94), rgba(4, 5, 7, 0.82) 70%, transparent); }
+@media (max-width: 860px) {
+  /* on phones the render controls are a bottom sheet like the code, so the specimen stays in view */
+  .tune { top: auto; bottom: 0; left: 0; right: 0; width: auto; max-height: 46dvh; border-radius: 10px 10px 0 0; padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); z-index: 4; }
+  body.tune-open .specimen { opacity: 0; } /* the sheet covers the slip's corner; the code sheet does the same */
+  #code { background: rgb(9, 10, 14); }
+}
 </style>
 </head>
 <body>
@@ -581,7 +593,6 @@ import { GPUComputationRenderer } from 'three/addons/misc/GPUComputationRenderer
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 
 const $ = (s) => document.querySelector(s);
@@ -2790,7 +2801,7 @@ function GEN() {
       if (D > 0) {
         // one has already landed, lying on the floor among the leaves (its own part, so the
         // diaspora callout points into the stream rather than at the floor)
-        b.part('semen');
+        b.part('fructus-lapsus');
         const s0 = b.s;
         diaspore([0.92, -1.36, 0.42], norm([-0.55, 0.22, 0.7]), Lb, La, Bf, 0);
         b.tag(s0, b.s, D + 1, null);
@@ -3342,9 +3353,11 @@ uniform float uCrimp;
 ${LIGHT_GLSL}varying vec3 vColor;
 varying float vAlpha;
 void main() {
-  int w = int(uTexSize), sub = int(uSub), per = 15 * sub;
-  int seg = gl_VertexID >> 1, s = seg / per, j = seg - s * per, k = j / sub;
-  float t = float(j - k * sub + (gl_VertexID & 1)) / uSub;
+  // indexed draw: gl_VertexID is the index, sub+1 vertices per span (knots are not shared between
+  // spans, since each span fades on its own length when a strand breaks up in flight)
+  int w = int(uTexSize), sub = int(uSub), sv = sub + 1;
+  int sp = gl_VertexID / sv, s = sp / 15, k = sp - s * 15;
+  float t = float(gl_VertexID - sp * sv) / uSub;
   int i1 = s * 16 + k;
   vec3 p0 = texelFetch(tPosition, adr(i1 - (k > 0 ? 1 : 0), w), 0).xyz;
   vec3 p1 = texelFetch(tPosition, adr(i1, w), 0).xyz;
@@ -3370,7 +3383,7 @@ void main() {
   vec3 B = cross(T, normalize(cameraPosition - p));
   float bl = length(B);
   p += (bl > 1e-5 ? B / bl : vec3(0.0)) * uCrimp * aux.x * min(flex + 0.15, 1.0) * (h - 0.5) * 2.0
-     * sin(3.14159265 * u * (h > 0.7 ? 2.0 : 1.0));
+     * sin(3.14159265 * u * (h > 0.7 && sub > 2 ? 2.0 : 1.0));
 
   int ds = i1 + int(uStride) < w * w ? int(uStride) : -int(uStride);
   vec3 off = texelFetch(tPosition, adr(i1 + ds, w), 0).xyz - p1;
@@ -3436,7 +3449,7 @@ void main() {
 `;
 const LensShader = {
   uniforms: {
-    tDiffuse: { value: null }, uTime: { value: 0 }, uCenter: { value: new THREE.Vector2(0.5, 0.5) },
+    tDiffuse: { value: null }, tBloom: { value: null }, uTime: { value: 0 }, uCenter: { value: new THREE.Vector2(0.5, 0.5) },
     uAspect: { value: 1 }, uCA: { value: 0.0007 }, uVignette: { value: 0.55 }, uGrain: { value: 0.014 },
     // per-specimen grade, display-referred: lift tints the blacks, gain the highlights
     uLift: { value: new THREE.Vector3() }, uGainC: { value: new THREE.Vector3(1, 1, 1) },
@@ -3444,17 +3457,33 @@ const LensShader = {
   },
   vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
   fragmentShader: /* glsl */ `uniform sampler2D tDiffuse;
+uniform sampler2D tBloom;   // UnrealBloomPass's half-res composite; its alpha is the blend weight it would apply
 uniform float uTime, uCA, uVignette, uGrain, uAspect, uGamma, uSat, uContrast;
 uniform vec2 uCenter;
 uniform vec3 uLift, uGainC, uBackdrop;
 varying vec2 vUv;
+// This pass also does what the bloom write-back and OutputPass did (additive bloom, Neutral tone
+// mapping at exposure 1, sRGB encoding), saving two full-resolution passes. Own names, so nothing
+// clashes with three's injected tone-mapping chunk.
+vec3 tmNeutral(vec3 color) {
+  const float S = 0.76, D = 0.15;
+  float x = min(color.r, min(color.g, color.b));
+  color -= x < 0.08 ? x - 6.25 * x * x : 0.04;
+  float peak = max(color.r, max(color.g, color.b));
+  if (peak < S) return color;
+  float d = 1.0 - S, np = 1.0 - d * d / (peak + d - S);
+  color *= np / peak;
+  return mix(color, vec3(np), 1.0 - 1.0 / (D * (peak - np) + 1.0));
+}
+vec3 srgb(vec3 x) { return mix(1.055 * pow(max(x, 0.0), vec3(0.41666)) - 0.055, x * 12.92, vec3(lessThanEqual(x, vec3(0.0031308)))); }
+vec3 src(vec2 uv) { vec4 b = texture2D(tBloom, uv); return srgb(tmNeutral(texture2D(tDiffuse, uv).rgb + b.rgb * b.a)); }
 float hash(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 void main() {
   vec2 d = vUv - uCenter;
   float r = length(d * vec2(uAspect, 1.0));
   // lateral colour only toward the frame edge, so hairlines on the specimen stay RGB-aligned
   vec2 off = d * uCA * 3.0 * smoothstep(0.35, 1.0, r);
-  vec3 c = vec3(texture2D(tDiffuse, vUv + off).r, texture2D(tDiffuse, vUv).g, texture2D(tDiffuse, vUv - off).b);
+  vec3 c = vec3(src(vUv + off).r, src(vUv).g, src(vUv - off).b);
   const vec3 W = vec3(0.2126, 0.7152, 0.0722);
   float l = dot(c, W);
   // cool slate backdrop: the warm specimen pops against its complement
@@ -3564,8 +3593,10 @@ composer.addPass(new RenderPass(scene, camera));
 // not every petal pixel, so the fibres stay crisp instead of sitting in a pink veil
 const bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.4, 0.16, 0.6);
 composer.addPass(bloomPass);
-composer.addPass(new OutputPass());
+// the bloom composite is added (and tone mapped) inside the lens pass instead of being blended back
+bloomPass.blendMaterial.visible = false;
 const lensPass = new ShaderPass(LensShader);
+lensPass.uniforms.tBloom.value = bloomPass.renderTargetsHorizontal[0].texture;
 composer.addPass(lensPass);
 
 /* ---------- the specimen case: wireframe box, floor, halo, dust ---------- */
@@ -3806,11 +3837,11 @@ function updateLook(focusDist) {
   bloomPass.threshold = 0.6 + 0.25 * Math.max(0, renderer.getPixelRatio() - 1);
   herb.lineMat.uniforms.uOpacity.value = params.fiber * look.line;
   LOOK.uSheen.value = params.sheen * look.sheen;
-  halo.material.opacity = look.halo;
+  halo.material.opacity = look.halo; halo.visible = look.halo > 1e-5; // opacity 0 is still a full draw
   pool.material.color.copy(poolTint).multiply(lampColor);
   atmo.lampGlow.color.copy(lampColor);
   MIRROR.uMirror.value = look.mirror; MIRROR.uPlane.value = look.plane; MIRROR.uRipple.value = look.ripple;
-  atmo.shadow.opacity = 0.5 * (1 - look.ripple);
+  atmo.shadow.opacity = 0.5 * (1 - look.ripple); atmo.shadow.visible = atmo.shadow.opacity > 1e-3;
 
   // lights ride with the camera like a studio rig; the key sways slowly around its upper left
   const t = reduceMotion ? 0 : state.simT, a = -0.55 + 0.3 * Math.sin(t * 0.07);
@@ -3885,14 +3916,21 @@ class Herbarium {
       uniforms: { ...MIRROR, ...R, uSlab: LOOK.uSlab, uAperture: this.pointMat.uniforms.uAperture },
       vertexShader: MIRROR_VERT, fragmentShader: POINT_FRAG, transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending,
     });
-    this.mirror = new THREE.Points(pg, this.mirrorMat);
+    // the reflecting share is fixed (uKeep), so only those particles are submitted
+    const keep = [];
+    for (let i = 0; i < this.N; i++) if (ref[i * 3 + 2] <= MIRROR.uKeep.value) keep.push(ref[i * 3], ref[i * 3 + 1], ref[i * 3 + 2]);
+    const mg = new THREE.BufferGeometry();
+    mg.setAttribute('position', new THREE.Float32BufferAttribute(keep, 3));
+    this.mirror = new THREE.Points(mg, this.mirrorMat);
     this.mirror.frustumCulled = false; this.mirror.renderOrder = -1;
 
     // fibers: Catmull-Rom hairlines, uSub sub-steps per span. No vertex data at all —
     // the shader derives strand, span and sub-step from gl_VertexID.
-    this.sub = size >= 512 || coarse ? 2 : 3;   // curve sub-steps per span: 3 only where strands are few
+    this.sub = size >= 512 || coarse || state.downgraded ? 2 : 3;   // curve sub-steps per span: 3 only where strands are few
     const lg = new THREE.BufferGeometry();
-    lg.setDrawRange(0, this.S * (K - 1) * this.sub * 2);
+    const sv = this.sub + 1, idx = new Uint32Array(this.S * (K - 1) * this.sub * 2);
+    for (let sp = 0, o = 0; sp < this.S * (K - 1); sp++) for (let i = 0; i < this.sub; i++) { idx[o++] = sp * sv + i; idx[o++] = sp * sv + i + 1; }
+    lg.setIndex(new THREE.BufferAttribute(idx, 1));
     this.lineMat = new THREE.ShaderMaterial({
       uniforms: { ...LOOK, ...R, uOpacity: U(0.8), uAperture: U(0.07), uMaxLen: U(0.16), uSub: U(this.sub), uCrimp: U(0.006), uGain: U(0.55) },
       vertexShader: LINE_VERT, fragmentShader: LINE_FRAG, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
@@ -4107,7 +4145,7 @@ class Herbarium {
   }
   dispose() {
     scene.remove(this.points, this.lines, this.mirror);
-    this.points.geometry.dispose(); this.lines.geometry.dispose(); this.pointMat.dispose(); this.lineMat.dispose(); this.mirrorMat.dispose();
+    this.points.geometry.dispose(); this.lines.geometry.dispose(); this.mirror.geometry.dispose(); this.pointMat.dispose(); this.lineMat.dispose(); this.mirrorMat.dispose();
     for (const v of [this.vel, this.pos, this.col]) v.material.dispose();
     this.tPos.dispose(); this.tCol.dispose(); this.tAux.dispose(); this.tGroups.dispose(); this.gpu.dispose();
   }
@@ -4148,7 +4186,7 @@ const params = { ...DEFAULTS };
 const QUALITY = { low: 256, mid: 384, high: 512, ultra: 640 };
 const state = {
   preset: 'peony', kind: 'peony', texts: {}, tab: 'json', buildId: 0, lastReq: null, dissolve: false, focus: new THREE.Vector3(0, 0.15, 0),
-  quality: coarse || narrowMQ.matches ? 'mid' : 'high', manualQuality: false, spin: !reduceMotion, simT: 0, kick: 0, downgraded: 0,
+  quality: coarse || narrowMQ.matches ? 'mid' : 'high', manualQuality: false, spin: !reduceMotion, simT: 0, kick: 0, downgraded: 0, mpCap: 5e6, fpsSkip: 0,
 };
 Object.keys(PRESETS).forEach((k) => (state.texts[k] = presetText(k)));
 let herb = new Herbarium(QUALITY[state.quality]);
@@ -4428,9 +4466,10 @@ setQuality(state.quality, false);
 
 function setSpin(on) { state.spin = on; $('#btn-spin').setAttribute('aria-pressed', String(on)); }
 const tuneEl = $('#tune');
-function setTune(open) { tuneEl.hidden = !open; body.classList.toggle('tune-open', open); $('#btn-tune').setAttribute('aria-expanded', String(open)); if (open) $('#hint').classList.add('gone'); }
+function setTune(open) { if (open && narrowMQ.matches) setCode(false); tuneEl.hidden = !open; body.classList.toggle('tune-open', open); $('#btn-tune').setAttribute('aria-expanded', String(open)); if (open) $('#hint').classList.add('gone'); }
 function setCode(open) {
-  if (narrowMQ.matches) { body.classList.toggle('code-open', open); body.classList.remove('code-closed'); }
+  // on phones the code sheet and the render sheet share the bottom edge: one at a time
+  if (narrowMQ.matches) { if (open) setTune(false); body.classList.toggle('code-open', open); body.classList.remove('code-closed'); }
   else body.classList.toggle('code-closed', !open);
   $('#btn-code').setAttribute('aria-pressed', String(open));
 }
@@ -4509,10 +4548,12 @@ function freeRect() {
   if (body.classList.contains('bare')) return [0, 0, W, H];
   if (narrowMQ.matches) {
     const top = 110;
-    const bottom = body.classList.contains('code-open') ? H - $('#code').offsetHeight : H - 120;
+    const bottom = body.classList.contains('code-open') ? H - $('#code').offsetHeight : !tuneEl.hidden ? H - tuneEl.offsetHeight : H - 120;
     return [0, top, W, Math.max(top + 200, bottom)];
   }
-  return [codeOpen() ? $('#code').offsetWidth : 0, 40, W, H - 40];
+  // the open render panel (fixed 18px from the right) takes its strip of the stage
+  const right = tuneEl.hidden ? W : Math.max(W * 0.55, W - 30 - tuneEl.offsetWidth);
+  return [codeOpen() ? $('#code').offsetWidth : 0, 40, right, H - 40];
 }
 function applyView(k) {
   const W = innerWidth, H = innerHeight, [x0, y0, x1, y1] = freeRect();
@@ -4532,7 +4573,7 @@ function applyView(k) {
 function resize() {
   const W = innerWidth, H = innerHeight;
   // cap the drawing buffer near 5 MP so bloom and the particle fill stay affordable on big screens
-  const pr = Math.min(devicePixelRatio || 1, coarse ? 1.6 : 2, Math.sqrt(5e6 / (W * H)));
+  const pr = Math.min(devicePixelRatio || 1, coarse ? 1.6 : 2, Math.sqrt(state.mpCap / (W * H)));
   renderer.setPixelRatio(pr);
   renderer.setSize(W, H, false);
   composer.setPixelRatio(pr);
@@ -4630,16 +4671,24 @@ function tick(now) {
   }
 }
 // Step down the particle count once if the device clearly can't keep up.
+// Most of the frame is full-screen work, so a struggling device first loses resolution, then particles.
 function autoQuality() {
   if (state.manualQuality || state.simT < 6 || document.hidden) return;
+  if (state.fpsSkip > 0) { state.fpsSkip--; return; } // the sample after a change holds shader compiles
   (state.fpsLog ||= []).push(stats.fps);
   if (state.fpsLog.length < 6) return;
   const avg = state.fpsLog.slice(-6).reduce((a, b) => a + b, 0) / 6;
   const order = ['low', 'mid', 'high', 'ultra'], i = order.indexOf(state.quality);
-  if (avg < 24 && i > 0 && state.downgraded < 2) {
-    state.downgraded++;
-    setQuality(order[i - 1], false);
-    toast(`帧率偏低，已切换到 ${$(`#quality button[data-q="${order[i - 1]}"]`).textContent} 粒子`);
+  if (avg < 24 && state.downgraded < 2) {
+    if (state.mpCap > 2.8e6 && drawSize.x * drawSize.y > 3e6) {
+      state.downgraded++; state.mpCap = 2.8e6; state.fpsSkip = 1;
+      resize();
+      toast('帧率偏低，已降低渲染分辨率');
+    } else if (i > 0) {
+      state.downgraded++; state.fpsSkip = 1;
+      setQuality(order[i - 1], false);
+      toast(`帧率偏低，已切换到 ${$(`#quality button[data-q="${order[i - 1]}"]`).textContent} 粒子`);
+    }
   }
   state.fpsLog = [];
 }
@@ -4661,7 +4710,7 @@ function autoQuality() {
   const specEl = $('#specimen'), statsBox = $('#stats');
   const art = {
     kind: null, labels: [], labelKey: '', hot: null, bloomed: false, morph: null, day: -1, acc: '', crowded: false,
-    rb: 0.8, top: 0.6, base: -1.45, wideY: 0.1, show: true, nextRects: 0, rects: null, lastSweep: 0,
+    rb: 0.8, top: 0.6, base: -1.45, wideY: 0.1, show: true, rod: true, nextRects: 0, rects: null, lastSweep: 0,
   };
   try { art.show = localStorage.getItem('herb.plate') !== 'off'; } catch {}
   plate.classList.toggle('off', !art.show);
@@ -4673,11 +4722,11 @@ function autoQuality() {
     receptaculum: '花托', involucrum: '总苞', capitulum: '头状花序', pappus: '冠毛', achenium: '瘦果', fructus: '果实', semen: '种子',
     alabastrum: '花苞', gemma: '芽', aculei: '皮刺', spinae: '刺', radix: '根', rhizoma: '根茎', 'petala-lapsa': '落瓣',
     aqua: '水面', odonata: '蜻蜓', gutta: '露珠', guttae: '露珠', pollen: '花粉',
-    petaloidea: '瓣化雄蕊', rostrum: '喙', diaspora: '飞散种子', 'folium-natans': '浮叶', 'folium-novum': '卷叶',
+    petaloidea: '瓣化雄蕊', 'fructus-lapsus': '落果', rostrum: '喙', diaspora: '飞散种子', 'folium-natans': '浮叶', 'folium-novum': '卷叶',
   };
   const GLOSS_KIND = {
     lotus: { receptaculum: '莲蓬', folium: '荷叶', fructus: '莲子', alabastrum: '菡萏' },
-    dandelion: { folium: '莲座叶', fructus: '瘦果' },
+    dandelion: { folium: '莲座叶' },
   };
 
   // collection date, herbarium style (03.X.2026), and the sexagenary year + season for the colophon:
@@ -4799,30 +4848,35 @@ function autoQuality() {
   // one O(N) pass per build: bloom radius (robust to stray wisps), plant height, the height of the widest ring
   function extents(res) {
     const P = res.P, C = res.C, A = res.A, f = res.focus, n = P.length >> 2, BINS = 128, RMAX = 1.8;
-    const rh = new Uint32Array(BINS), yh = new Uint32Array(BINS), yCut = f[1] - 0.5;
-    let nb = 0, ny = 0;
+    const rh = new Uint32Array(BINS), rd = new Uint32Array(BINS), yh = new Uint32Array(BINS), yCut = f[1] - 0.5, yDim = f[1] - 0.15;
+    let nb = 0, nd = 0, ny = 0;
     for (let i = 0; i < n; i += 2) {
       const j = i << 2;
       if (C[j + 3] <= 0 || A[j + 1] > 0.001) continue; // skip empty texels and drifting seeds/petals
       const y = P[j + 1], yb = Math.min(BINS - 1, Math.max(0, ((y + 1.5) / 3) * BINS) | 0);
       yh[yb]++; ny++;
-      if (y > yCut) { rh[Math.min(BINS - 1, ((Math.hypot(P[j] - f[0], P[j + 2] - f[2]) / RMAX) * BINS) | 0)]++; nb++; }
+      if (y > yCut) {
+        const rb = Math.min(BINS - 1, ((Math.hypot(P[j] - f[0], P[j + 2] - f[2]) / RMAX) * BINS) | 0);
+        rh[rb]++; nb++;
+        if (y > yDim) { rd[rb]++; nd++; }
+      }
     }
     const pct = (h, total, q) => { let acc = 0; for (let b = 0; b < BINS; b++) { acc += h[b]; if (acc >= total * q) return b + 0.5; } return BINS - 0.5; };
     if (!nb || !ny) return;
-    art.rb = (pct(rh, nb, 0.985) / BINS) * RMAX;
+    art.rb = (pct(rh, nb, 0.985) / BINS) * RMAX;            // label spacing: everything around the bloom
+    art.rbDim = nd ? (pct(rd, nd, 0.985) / BINS) * RMAX : art.rb; // the measured diameter: the bloom alone
     art.top = (pct(yh, ny, 0.997) / BINS) * 3 - 1.5;
     art.base = Math.max(-1.45, (pct(yh, ny, 0.002) / BINS) * 3 - 1.5);
     // the widest ring: mean height of bloom particles near the outer radius
     let sy = 0, sn = 0;
-    const r0 = art.rb * 0.86;
+    const r0 = art.rbDim * 0.86;
     for (let i = 0; i < n; i += 8) {
       const j = i << 2;
       if (C[j + 3] <= 0 || A[j + 1] > 0.001 || P[j + 1] <= yCut) continue;
       if (Math.hypot(P[j] - f[0], P[j + 2] - f[2]) > r0) { sy += P[j + 1]; sn++; }
     }
     art.wideY = sn ? sy / sn : f[1];
-    art.dimR = `Ø ${(art.rb * 20).toFixed(1)}`;
+    art.dimR = `Ø ${(art.rbDim * 20).toFixed(1)}`;
     art.dimH = `H ${((art.top - art.base) * 10).toFixed(1)}`;
   }
 
@@ -4887,6 +4941,7 @@ function autoQuality() {
   });
   function setCrowded(on) { if (on !== art.crowded) { art.crowded = on; poemEl.classList.toggle('crowded', on); } }
 
+  const setA = (el, k, v) => { const c = el.__a || (el.__a = {}); if (c[k] !== v) { c[k] = v; el.setAttribute(k, v); } };
   function layout(dt) {
     const W = innerWidth, H = innerHeight, R = art.rects;
     camera.updateMatrixWorld(); // controls moved the camera this frame; project with the pose about to render
@@ -4927,6 +4982,10 @@ function autoQuality() {
       l.face = hl < 0.15 ? 1 : 0.28 + 0.72 * smooth(-0.3, 0.15, (hx * camDir.x + hz * camDir.z) / hl);
       sides[l.side].push(l);
     }
+    // keep the numbering continuous over the callouts actually shown
+    let vis = '';
+    for (const l of art.labels) if (l.shown) vis += l.name + ',';
+    if (vis !== art.visKey) { art.visKey = vis; let n = 0; for (const l of art.labels) if (l.shown) l.num.textContent = pad(++n); measureLabels(); }
 
     // columns just outside the bloom (and beyond every anchor on that side), kept inside the free stage
     const col = {};
@@ -4951,7 +5010,7 @@ function autoQuality() {
         crowded = !fits;
         if (fits) top = Math.max(top, below);
       }
-      if (sd < 0 && R.spec.width && lo < R.spec.right + 12) bottom = Math.min(bottom, R.spec.top - 16);
+      if (R.spec.width && lo < R.spec.right + 12 && hi > R.spec.left - 12) bottom = Math.min(bottom, R.spec.top - 16);
       if (sd > 0 && R.stats.width && hi > R.stats.left - 12) bottom = Math.min(bottom, R.stats.top - 14);
       col[sd] = { c, wmax };
       // stack by anchor height, at least 27px apart, then pull back inside the band
@@ -4965,10 +5024,10 @@ function autoQuality() {
         l.snap = false;
         const ax = l.s.x, ay = l.s.y, ex = c - sd * 22, len = Math.hypot(ex - ax, l.y - ay) || 1;
         const ox = ax + ((ex - ax) / len) * 3.6, oy = ay + ((l.y - ay) / len) * 3.6;
-        l.lead.setAttribute('d', `M${ff(ox)} ${ff(oy)}L${ff(ex)} ${ff(l.y)}H${ff(c - sd * 5)}`);
-        l.ring.setAttribute('cx', ff(ax)); l.ring.setAttribute('cy', ff(ay));
-        l.pin.setAttribute('cx', ff(ax)); l.pin.setAttribute('cy', ff(ay));
-        l.text.setAttribute('x', ff(c)); l.text.setAttribute('y', ff(l.y + 4.5));
+        setA(l.lead, 'd', `M${ff(ox)} ${ff(oy)}L${ff(ex)} ${ff(l.y)}H${ff(c - sd * 5)}`);
+        setA(l.ring, 'cx', ff(ax)); setA(l.ring, 'cy', ff(ay));
+        setA(l.pin, 'cx', ff(ax)); setA(l.pin, 'cy', ff(ay));
+        setA(l.text, 'x', ff(c)); setA(l.text, 'y', ff(l.y + 4.5));
         const op = l.name === art.hot ? 1 : l.a * l.face;
         if (Math.abs(op - l.op) > 0.01) { l.op = op; l.g.style.opacity = op.toFixed(2); }
       }
@@ -4976,23 +5035,28 @@ function autoQuality() {
     setCrowded(crowded);
 
     // Ø: a measure above the bloom, square to the view, with dotted extension lines down to its widest ring
-    w.copy(state.focus).addScaledVector(right, -art.rb).setY(art.top + 0.14); toScreen(w, sA);
-    w.copy(state.focus).addScaledVector(right, art.rb).setY(art.top + 0.14); toScreen(w, sB);
-    w.copy(state.focus).addScaledVector(right, -art.rb).setY(art.wideY + 0.06); toScreen(w, sC);
-    w.copy(state.focus).addScaledVector(right, art.rb).setY(art.wideY + 0.06); toScreen(w, sD);
+    const rD = art.rbDim || art.rb;
+    w.copy(state.focus).addScaledVector(right, -rD).setY(art.top + 0.14); toScreen(w, sA);
+    w.copy(state.focus).addScaledVector(right, rD).setY(art.top + 0.14); toScreen(w, sB);
+    w.copy(state.focus).addScaledVector(right, -rD).setY(art.wideY + 0.06); toScreen(w, sC);
+    w.copy(state.focus).addScaledVector(right, rD).setY(art.wideY + 0.06); toScreen(w, sD);
     const tick = (p) => `M${ff(p.x - 3)} ${ff(p.y + 3)}l6 -6`;
-    dimEls.dl.setAttribute('d', `M${ff(sA.x - 6)} ${ff(sA.y)}L${ff(sB.x + 6)} ${ff(sB.y)}${tick(sA)}${tick(sB)}`);
-    dimEls.dx.setAttribute('d', `M${ff(sC.x)} ${ff(sC.y)}L${ff(sA.x)} ${ff(sA.y + 4)}M${ff(sD.x)} ${ff(sD.y)}L${ff(sB.x)} ${ff(sB.y + 4)}`);
-    dimEls.dt.setAttribute('x', ff((sA.x + sB.x) / 2)); dimEls.dt.setAttribute('y', ff((sA.y + sB.y) / 2 - 7));
-    // H: a rod on the side with fewer labels, outboard of that column
-    const hs = sides[1].length < sides['-1'].length ? 1 : -1, hc = col[hs];
-    const hx = hc ? hc.c + hs * (hc.wmax + 18) : (sA.x + sB.x) / 2 + hs * (Math.abs(sB.x - sA.x) / 2 + 26);
+    setA(dimEls.dl, 'd', `M${ff(sA.x - 6)} ${ff(sA.y)}L${ff(sB.x + 6)} ${ff(sB.y)}${tick(sA)}${tick(sB)}`);
+    setA(dimEls.dx, 'd', `M${ff(sC.x)} ${ff(sC.y)}L${ff(sA.x)} ${ff(sA.y + 4)}M${ff(sD.x)} ${ff(sD.y)}L${ff(sB.x)} ${ff(sB.y + 4)}`);
+    setA(dimEls.dt, 'x', ff((sA.x + sB.x) / 2)); setA(dimEls.dt, 'y', ff((sA.y + sB.y) / 2 - 7));
+    // H: a rod outboard of the column with fewer labels, or of the other one when the stage edge leaves no room; none if neither has
+    const rodX = (sd) => { const c = col[sd]; return c ? c.c + sd * (c.wmax + 18) : (sA.x + sB.x) / 2 + sd * (Math.abs(sB.x - sA.x) / 2 + 26); };
+    const roomy = (x) => x > x0 + 6 && x < x1 - 6;
+    let hs = sides[1].length < sides['-1'].length ? 1 : -1;
+    if (!roomy(rodX(hs))) hs = -hs;
+    const hxc = rodX(hs), rod = roomy(hxc);
+    if (rod !== art.rod) { art.rod = rod; dimEls.hl.style.display = dimEls.ht.style.display = rod ? '' : 'none'; }
+    if (!rod) return;
     w.copy(state.focus).setY(art.top); toScreen(w, sC);
     w.copy(state.focus).setY(art.base); toScreen(w, sD);
-    const hxc = Math.min(x1 - 6, Math.max(x0 + 6, hx));
-    dimEls.hl.setAttribute('d', `M${ff(hxc)} ${ff(sC.y - 5)}V${ff(sD.y + 5)}M${ff(hxc - 3)} ${ff(sC.y + 3)}l6 -6M${ff(hxc - 3)} ${ff(sD.y + 3)}l6 -6`
+    setA(dimEls.hl, 'd', `M${ff(hxc)} ${ff(sC.y - 5)}V${ff(sD.y + 5)}M${ff(hxc - 3)} ${ff(sC.y + 3)}l6 -6M${ff(hxc - 3)} ${ff(sD.y + 3)}l6 -6`
       + `M${ff(hxc)} ${ff(sC.y)}h${-hs * 16}M${ff(hxc)} ${ff(sD.y)}h${-hs * 16}`);
-    dimEls.ht.setAttribute('transform', `translate(${ff(hxc + hs * 5)} ${ff((sC.y + sD.y) / 2)}) rotate(${hs > 0 ? 90 : -90})`);
+    setA(dimEls.ht, 'transform', `translate(${ff(hxc + hs * 5)} ${ff((sC.y + sD.y) / 2)}) rotate(${hs > 0 ? 90 : -90})`);
   }
 
   // dim while the camera is being dragged
