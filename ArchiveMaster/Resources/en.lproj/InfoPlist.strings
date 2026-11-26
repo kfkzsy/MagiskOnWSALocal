@@ -1,0 +1,4 @@
+"CFBundleDisplayName" = "ArchiveMaster";
+"CFBundleName" = "ArchiveMaster";
+"NSPhotoLibraryAddUsageDescription" = "Used to save compressed photos and videos to your library.";
+"NSPhotoLibraryUsageDescription" = "Used to read the photos and videos you choose, and to move originals to Recently Deleted when you turn on “Delete Originals”.";

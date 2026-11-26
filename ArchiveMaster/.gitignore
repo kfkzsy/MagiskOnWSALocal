@@ -1,0 +1,4 @@
+.build/
+ThirdParty/
+*.xcodeproj/
+DerivedData/
