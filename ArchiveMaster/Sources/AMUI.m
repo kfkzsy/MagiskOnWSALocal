@@ -7,8 +7,25 @@ NSString *const AMDefaultsDeleteAfterExtract = @"AMDeleteAfterExtract";
 NSString *const AMDefaultsEncoding = @"AMFilenameEncoding";
 NSString *const AMDefaultsSort = @"AMSortMode";
 NSNotificationName const AMRevealInFilesNotification = @"AMRevealInFilesNotification";
+NSNotificationName const AMCompressMediaNotification = @"AMCompressMediaNotification";
 
 static const NSInteger kToastTag = 0x70A57;
+static NSInteger AMActiveOperations = 0;
+
+@interface AMLongOperation : NSObject
+@property (nonatomic) UIBackgroundTaskIdentifier task;
+@property (nonatomic) BOOL finished;
+- (void)endTask;
+@end
+
+@implementation AMLongOperation
+- (void)endTask {
+    if (self.task != UIBackgroundTaskInvalid) {
+        [UIApplication.sharedApplication endBackgroundTask:self.task];
+        self.task = UIBackgroundTaskInvalid;
+    }
+}
+@end
 
 @implementation AMUI
 
@@ -32,15 +49,15 @@ static const NSInteger kToastTag = 0x70A57;
         other.timeStyle = NSDateFormatterShortStyle;
     });
     if (!date) return @"";
-    if ([NSCalendar.currentCalendar isDateInToday:date]) return [NSString stringWithFormat:@"今天 %@", [today stringFromDate:date]];
-    if ([NSCalendar.currentCalendar isDateInYesterday:date]) return [NSString stringWithFormat:@"昨天 %@", [today stringFromDate:date]];
+    if ([NSCalendar.currentCalendar isDateInToday:date]) return [NSString stringWithFormat:L(@"今天 %@"), [today stringFromDate:date]];
+    if ([NSCalendar.currentCalendar isDateInYesterday:date]) return [NSString stringWithFormat:L(@"昨天 %@"), [today stringFromDate:date]];
     return [other stringFromDate:date];
 }
 
 + (NSURL *)uniqueURLForName:(NSString *)name inDirectory:(NSURL *)dir {
     NSString *clean = [[name stringByReplacingOccurrencesOfString:@"/" withString:@"-"]
         stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    if (clean.length == 0 || [clean isEqualToString:@"."] || [clean isEqualToString:@".."]) clean = @"未命名";
+    if (clean.length == 0 || [clean isEqualToString:@"."] || [clean isEqualToString:@".."]) clean = L(@"未命名");
     NSFileManager *fm = NSFileManager.defaultManager;
     NSURL *url = [dir URLByAppendingPathComponent:clean];
     BOOL isDir = NO;
@@ -113,7 +130,7 @@ static const NSInteger kToastTag = 0x70A57;
 
 + (void)showMessage:(NSString *)message title:(NSString *)title from:(UIViewController *)vc {
     UIAlertController *a = [UIAlertController alertControllerWithTitle:title message:message preferredStyle:UIAlertControllerStyleAlert];
-    [a addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleCancel handler:nil]];
+    [a addAction:[UIAlertAction actionWithTitle:L(@"好") style:UIAlertActionStyleCancel handler:nil]];
     [[self topPresenterFrom:vc] presentViewController:a animated:YES completion:nil];
 }
 
@@ -141,7 +158,7 @@ static const NSInteger kToastTag = 0x70A57;
             }]
             forControlEvents:UIControlEventEditingChanged];
     }];
-    [a addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:^(UIAlertAction *x) {
+    [a addAction:[UIAlertAction actionWithTitle:L(@"取消") style:UIAlertActionStyleCancel handler:^(UIAlertAction *x) {
            handler(nil);
        }]];
     __weak UIAlertController *weakA = a;
@@ -245,6 +262,33 @@ static const NSInteger kToastTag = 0x70A57;
 
 + (void)hapticError {
     [[UINotificationFeedbackGenerator new] notificationOccurred:UINotificationFeedbackTypeError];
+}
+
++ (id)beginLongOperation {
+    AMLongOperation *op = [AMLongOperation new];
+    UIApplication *app = UIApplication.sharedApplication;
+    __weak AMLongOperation *weakOp = op;
+    op.task = [app beginBackgroundTaskWithName:@"ArchiveMaster" expirationHandler:^{
+        [weakOp endTask];
+    }];
+    if (AMActiveOperations++ == 0) app.idleTimerDisabled = YES;
+    return op;
+}
+
++ (void)endLongOperation:(id)token {
+    if (![token isKindOfClass:AMLongOperation.class]) return;
+    AMLongOperation *op = token;
+    if (op.finished) return;
+    op.finished = YES;
+    [op endTask];
+    if (AMActiveOperations > 0 && --AMActiveOperations == 0) UIApplication.sharedApplication.idleTimerDisabled = NO;
+}
+
++ (long long)niceBytes:(long long)bytes {
+    const long long KB = 1024, MB = 1024 * 1024;
+    if (bytes < MB) return MAX(10 * KB, (bytes + 5 * KB) / (10 * KB) * (10 * KB));
+    long long tenth = MB / 10;
+    return (bytes + tenth / 2) / tenth * tenth;
 }
 
 + (UIImage *)symbol:(NSString *)name {
@@ -392,7 +436,7 @@ static UITableViewCell *AMPlainCell(void) {
     return cell;
 }
 
-+ (UITableViewCell *)sliderCellWithTitle:(NSString *)title value:(float)value min:(float)min max:(float)max format:(NSString *(^)(float))format handler:(void (^)(float))handler {
++ (UITableViewCell *)sliderCellWithTitle:(NSString *)title value:(float)value min:(float)min max:(float)max format:(NSString *(^)(float))format handler:(void (^)(float))handler outSlider:(UISlider **)outSlider {
     UITableViewCell *cell = AMPlainCell();
     UILabel *label = AMBodyLabel(title);
     UILabel *valueLabel = [UILabel new];
@@ -432,6 +476,51 @@ static UITableViewCell *AMPlainCell(void) {
         [slider.topAnchor constraintEqualToAnchor:label.bottomAnchor constant:10],
         [slider.bottomAnchor constraintEqualToAnchor:m.bottomAnchor],
     ]];
+    if (outSlider) *outSlider = slider;
+    return cell;
+}
+
++ (UITableViewCell *)menuCellWithTitle:(NSString *)title buttonTitle:(NSString *)buttonTitle menu:(UIMenu *)menu {
+    UITableViewCell *cell = AMPlainCell();
+    UILabel *label = AMBodyLabel(title);
+    UIButtonConfiguration *cfg = [UIButtonConfiguration plainButtonConfiguration];
+    cfg.title = buttonTitle;
+    cfg.image = [UIImage systemImageNamed:@"chevron.down" withConfiguration:[UIImageSymbolConfiguration configurationWithTextStyle:UIFontTextStyleFootnote]];
+    cfg.imagePlacement = NSDirectionalRectEdgeTrailing;
+    cfg.imagePadding = 4;
+    cfg.contentInsets = NSDirectionalEdgeInsetsMake(8, 8, 8, 0);
+    UIButton *button = [UIButton buttonWithConfiguration:cfg primaryAction:nil];
+    button.menu = menu;
+    button.showsMenuAsPrimaryAction = YES;
+    button.translatesAutoresizingMaskIntoConstraints = NO;
+    [button setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    [cell.contentView addSubview:label];
+    [cell.contentView addSubview:button];
+    UILayoutGuide *m = cell.contentView.layoutMarginsGuide;
+    [NSLayoutConstraint activateConstraints:@[
+        [label.leadingAnchor constraintEqualToAnchor:m.leadingAnchor],
+        [label.centerYAnchor constraintEqualToAnchor:cell.contentView.centerYAnchor],
+        [label.topAnchor constraintGreaterThanOrEqualToAnchor:m.topAnchor],
+        [label.bottomAnchor constraintLessThanOrEqualToAnchor:m.bottomAnchor],
+        [button.trailingAnchor constraintEqualToAnchor:m.trailingAnchor],
+        [button.centerYAnchor constraintEqualToAnchor:cell.contentView.centerYAnchor],
+        [button.leadingAnchor constraintGreaterThanOrEqualToAnchor:label.trailingAnchor constant:8],
+    ]];
+    return cell;
+}
+
++ (UITableViewCell *)actionCellWithTitle:(NSString *)title symbol:(NSString *)symbol destructive:(BOOL)destructive {
+    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
+    UIListContentConfiguration *c = [UIListContentConfiguration cellConfiguration];
+    c.text = title;
+    UIColor *color = destructive ? UIColor.systemRedColor : UIColor.tintColor;
+    c.textProperties.color = color;
+    if (symbol) {
+        c.image = [UIImage systemImageNamed:symbol];
+        c.imageProperties.tintColor = color;
+    }
+    cell.contentConfiguration = c;
+    cell.accessibilityTraits = UIAccessibilityTraitButton;
     return cell;
 }
 

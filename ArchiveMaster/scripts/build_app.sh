@@ -30,12 +30,15 @@ clang -target "arm64-apple-ios$MIN_IOS" -isysroot "$SDK" -fuse-ld=lld -fobjc-arc
   -lz -lbz2 -liconv -lxml2 \
   -framework UIKit -framework Foundation -framework CoreFoundation -framework CoreGraphics -framework QuartzCore \
   -framework QuickLook -framework QuickLookThumbnailing -framework Photos -framework PhotosUI \
-  -framework UniformTypeIdentifiers -framework ImageIO \
+  -framework UniformTypeIdentifiers -framework ImageIO -framework AVFoundation -framework CoreMedia \
+  -framework CoreLocation -framework Security \
   -Wl,-dead_strip -Wl,-adhoc_codesign -o "$BIN"
 llvm-strip -x "$BIN" 2>/dev/null || true
 
-# Bundle resources: binary Info.plist, PkgInfo, icons, localized display names.
-python3 -I - "$ROOT/Resources/Info.plist" "$STAGE/Payload/$APP.app" <<'PY'
+# Bundle resources: binary Info.plist, PkgInfo, icons, localizations (zh-Hans is the development language).
+python3 -I "$ROOT/scripts/l10n_check.py" check "$ROOT/Resources/en.lproj/Localizable.strings" "$ROOT"/Sources/*.m
+APPDIR="$STAGE/Payload/$APP.app"
+python3 -I - "$ROOT/Resources/Info.plist" "$APPDIR" <<'PY'
 import os, plistlib, sys
 src, app = sys.argv[1], sys.argv[2]
 with open(src, "rb") as f:
@@ -44,11 +47,13 @@ with open(os.path.join(app, "Info.plist"), "wb") as f:
     plistlib.dump(info, f, fmt=plistlib.FMT_BINARY)
 with open(os.path.join(app, "PkgInfo"), "w") as f:
     f.write("APPL????")
-for lang, name in (("zh-Hans", "解压大师"), ("en", "Unarchiver")):
-    os.makedirs(os.path.join(app, lang + ".lproj"), exist_ok=True)
-    with open(os.path.join(app, lang + ".lproj", "InfoPlist.strings"), "wb") as f:
-        plistlib.dump({"CFBundleDisplayName": name, "CFBundleName": name}, f, fmt=plistlib.FMT_BINARY)
 PY
+for lproj in "$ROOT"/Resources/*.lproj; do
+  mkdir -p "$APPDIR/$(basename "$lproj")"
+  for strings in "$lproj"/*.strings; do
+    python3 -I "$ROOT/scripts/l10n_check.py" compile "$strings" "$APPDIR/$(basename "$lproj")/$(basename "$strings")"
+  done
+done
 python3 -I "$ROOT/scripts/make_icon.py" "$WORK/icons"
 cp "$WORK"/icons/AppIcon*x*.png "$STAGE/Payload/$APP.app/"
 cp "$WORK/icons/AppIcon1024.png" "$STAGE/iTunesArtwork"

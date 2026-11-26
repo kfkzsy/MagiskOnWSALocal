@@ -114,6 +114,44 @@ static void test_password(am_encryption enc) {
     printf("  zip %s password ok\n", enc == AM_ENC_AES256 ? "AES-256" : "ZipCrypto");
 }
 
+static int only_text(void *ctx, const char *path) {
+    (void)ctx;
+    return strcmp(path, "测试文件夹/子目录/文本.txt") == 0;
+}
+
+static void test_filter_and_passwords(void) {
+    char out[1200], dest[1200], in[1200], err[512] = "";
+    snprintf(in, sizeof in, "%s/src/测试文件夹", W);
+    snprintf(out, sizeof out, "%s/multi.zip", W);
+    snprintf(dest, sizeof dest, "%s/multi", W);
+    const char *inputs[] = { in };
+    am_write_opts wo = { .format = AM_FMT_ZIP, .level = 1, .password = "right", .encryption = AM_ENC_AES256 };
+    int rc = am_create(out, inputs, 1, &wo, NULL, NULL, err, sizeof err);
+    CHECK(rc == AM_OK, "create rc=%d", rc);
+
+    // A saved list where only the last candidate is right.
+    const char *book[] = { "nope", "also-wrong", "right" };
+    am_read_opts ro = { .passwords = book, .password_count = 3 };
+    fresh_dir(dest);
+    rc = am_extract(out, dest, &ro, NULL, NULL, err, sizeof err);
+    CHECK(rc == AM_OK, "password list rc=%d %s", rc, err);
+    CHECK(sh("diff -r '%s' '%s/测试文件夹' >/dev/null", in, dest) == 0, "password list content differs");
+
+    // All candidates wrong -> bad password.
+    am_read_opts bad = { .passwords = book, .password_count = 2 };
+    fresh_dir(dest);
+    rc = am_extract(out, dest, &bad, NULL, NULL, err, sizeof err);
+    CHECK(rc == AM_BAD_PASSWORD, "all-wrong list rc=%d", rc);
+
+    // Selective extraction of one entry.
+    am_read_opts sel = { .password = "right", .include = only_text };
+    fresh_dir(dest);
+    rc = am_extract(out, dest, &sel, NULL, NULL, err, sizeof err);
+    CHECK(rc == AM_OK, "filter rc=%d %s", rc, err);
+    CHECK(sh("test -f '%s/测试文件夹/子目录/文本.txt' && test ! -e '%s/测试文件夹/big.txt'", dest, dest) == 0, "filter extracted wrong set");
+    printf("  password list + selective extract ok\n");
+}
+
 static void test_cancel(void) {
     char out[1200], in[1200], err[512] = "";
     snprintf(in, sizeof in, "%s/src/测试文件夹", W);
@@ -221,6 +259,7 @@ int main(int argc, char **argv) {
     printf("misc:\n");
     test_password(AM_ENC_AES256);
     test_password(AM_ENC_ZIPCRYPTO);
+    test_filter_and_passwords();
     test_cancel();
     test_not_archive();
     test_gbk(argv[2]);

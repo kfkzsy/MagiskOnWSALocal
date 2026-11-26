@@ -1,0 +1,4 @@
+"CFBundleDisplayName" = "解压大师";
+"CFBundleName" = "解压大师";
+"NSPhotoLibraryAddUsageDescription" = "用于把压缩后的照片和视频存入相册。";
+"NSPhotoLibraryUsageDescription" = "用于读取你选择的照片和视频，以及在你开启“删除原图”时把原照片移到“最近删除”。";

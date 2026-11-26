@@ -49,8 +49,13 @@ typedef enum {
 typedef int (*am_progress_cb)(void *ctx, int64_t done, int64_t total, const char *name);
 
 typedef struct {
-    const char *password;   /* NULL if none */
+    const char *password;            /* NULL if none */
+    const char *const *passwords;    /* extra candidates, tried in order (e.g. a saved password list) */
+    int password_count;
     const char *charset;    /* NULL/"" = auto (UTF-8, falling back to GBK), or e.g. "CP936", "BIG5", "SHIFT_JIS" */
+    /* Optional entry filter: return non-zero to extract the entry with this (sanitised, UTF-8) path. */
+    int (*include)(void *ctx, const char *path);
+    void *include_ctx;
 } am_read_opts;
 
 typedef struct {

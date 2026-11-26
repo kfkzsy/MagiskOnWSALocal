@@ -9,6 +9,10 @@ NS_ASSUME_NONNULL_BEGIN
 @interface AMFormatsViewController : UITableViewController
 @end
 
+/// Saved extraction passwords.
+@interface AMPasswordBookViewController : UITableViewController
+@end
+
 /// Third-party license notices.
 @interface AMLicensesViewController : UIViewController
 @end

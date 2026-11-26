@@ -165,9 +165,13 @@ static int is_zip_family(struct archive *a) {
     return (archive_format(a) & ARCHIVE_FORMAT_BASE_MASK) == ARCHIVE_FORMAT_ZIP;
 }
 
+static int has_password(const am_read_opts *o) {
+    return o && ((o->password && *o->password) || o->password_count > 0);
+}
+
 static int classify_read_error(struct archive *a, const am_read_opts *o, char *err, size_t errlen) {
     const char *msg = arc_err(a);
-    int has_pw = o && o->password && *o->password;
+    int has_pw = has_password(o);
     if (strstr(msg, "Passphrase required") || (strstr(msg, "assphrase") && !has_pw)) {
         set_err(err, errlen, "%s", msg);
         return AM_NEED_PASSWORD;
@@ -192,6 +196,8 @@ static struct archive *open_reader(const char *const *paths, int count, const am
     archive_read_support_format_all(a);
     archive_read_support_format_raw(a); /* lowest bid: only used for bare .gz/.xz/... files */
     if (o && o->password && *o->password) archive_read_add_passphrase(a, o->password);
+    for (int i = 0; o && i < o->password_count; i++)
+        if (o->passwords[i] && *o->passwords[i]) archive_read_add_passphrase(a, o->passwords[i]);
     *auto_charset = !(o && o->charset && *o->charset);
     if (!*auto_charset) {
         char opt[64];
@@ -251,7 +257,7 @@ int am_extract_volumes(const char *const *volumes, int count, const char *dest_d
     archive_write_disk_set_options(ext, ARCHIVE_EXTRACT_TIME | ARCHIVE_EXTRACT_SECURE_SYMLINKS |
                                             ARCHIVE_EXTRACT_SECURE_NODOTDOT);
 
-    int has_pw = opts && opts->password && *opts->password;
+    int has_pw = has_password(opts);
     int rc = AM_OK, entries = 0;
     const void *buf;
     size_t size;
@@ -276,6 +282,7 @@ int am_extract_volumes(const char *const *volumes, int count, const char *dest_d
             rel = entry_name_utf8(e, auto_cs);
         }
         if (!rel || !sanitize_path(rel) || is_junk_path(rel)) { free(rel); continue; }
+        if (opts && opts->include && !opts->include(opts->include_ctx, rel)) { free(rel); continue; }
 
         if (archive_entry_is_encrypted(e) && !has_pw) {
             free(rel);

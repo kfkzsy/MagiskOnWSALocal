@@ -31,16 +31,16 @@ NSErrorDomain const AMArchiveErrorDomain = @"AMArchiveErrorDomain";
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         list = @[
-            [self f:AM_FMT_ZIP name:@"ZIP" summary:@"兼容性最好，所有设备都能打开，可设置密码。"],
-            [self f:AM_FMT_7Z name:@"7Z" summary:@"压缩率高，适合大文件，需要 7-Zip 等软件打开。"],
-            [self f:AM_FMT_TAR_GZ name:@"TAR.GZ" summary:@"macOS 和 Linux 常用格式，速度快。"],
-            [self f:AM_FMT_TAR_XZ name:@"TAR.XZ" summary:@"压缩率很高，但速度较慢。"],
-            [self f:AM_FMT_TAR_ZST name:@"TAR.ZST" summary:@"Zstandard：速度与压缩率兼顾。"],
-            [self f:AM_FMT_TAR_BZ2 name:@"TAR.BZ2" summary:@"传统的高压缩格式。"],
-            [self f:AM_FMT_TAR_LZ4 name:@"TAR.LZ4" summary:@"速度极快，压缩率较低。"],
-            [self f:AM_FMT_TAR name:@"TAR" summary:@"只打包不压缩，速度最快。"],
-            [self f:AM_FMT_ISO name:@"ISO" summary:@"ISO 9660 光盘映像（含 Joliet 长文件名）。"],
-            [self f:AM_FMT_CPIO name:@"CPIO" summary:@"Unix 归档格式，只打包不压缩。"],
+            [self f:AM_FMT_ZIP name:@"ZIP" summary:L(@"兼容性最好，所有设备都能打开，可设置密码。")],
+            [self f:AM_FMT_7Z name:@"7Z" summary:L(@"压缩率高，适合大文件，需要 7-Zip 等软件打开。")],
+            [self f:AM_FMT_TAR_GZ name:@"TAR.GZ" summary:L(@"macOS 和 Linux 常用格式，速度快。")],
+            [self f:AM_FMT_TAR_XZ name:@"TAR.XZ" summary:L(@"压缩率很高，但速度较慢。")],
+            [self f:AM_FMT_TAR_ZST name:@"TAR.ZST" summary:L(@"Zstandard：速度与压缩率兼顾。")],
+            [self f:AM_FMT_TAR_BZ2 name:@"TAR.BZ2" summary:L(@"传统的高压缩格式。")],
+            [self f:AM_FMT_TAR_LZ4 name:@"TAR.LZ4" summary:L(@"速度极快，压缩率较低。")],
+            [self f:AM_FMT_TAR name:@"TAR" summary:L(@"只打包不压缩，速度最快。")],
+            [self f:AM_FMT_ISO name:@"ISO" summary:L(@"ISO 9660 光盘映像（含 Joliet 长文件名）。")],
+            [self f:AM_FMT_CPIO name:@"CPIO" summary:L(@"Unix 归档格式，只打包不压缩。")],
         ];
     });
     return list;
@@ -51,11 +51,11 @@ NSErrorDomain const AMArchiveErrorDomain = @"AMArchiveErrorDomain";
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         list = @[
-            [self f:AM_FMT_GZ name:@"GZ" summary:@"用 gzip 压缩这一个文件。"],
-            [self f:AM_FMT_XZ name:@"XZ" summary:@"用 xz 压缩这一个文件，压缩率很高。"],
-            [self f:AM_FMT_ZST name:@"ZST" summary:@"用 Zstandard 压缩这一个文件。"],
-            [self f:AM_FMT_BZ2 name:@"BZ2" summary:@"用 bzip2 压缩这一个文件。"],
-            [self f:AM_FMT_LZ4 name:@"LZ4" summary:@"用 LZ4 快速压缩这一个文件。"],
+            [self f:AM_FMT_GZ name:@"GZ" summary:L(@"用 gzip 压缩这一个文件。")],
+            [self f:AM_FMT_XZ name:@"XZ" summary:L(@"用 xz 压缩这一个文件，压缩率很高。")],
+            [self f:AM_FMT_ZST name:@"ZST" summary:L(@"用 Zstandard 压缩这一个文件。")],
+            [self f:AM_FMT_BZ2 name:@"BZ2" summary:L(@"用 bzip2 压缩这一个文件。")],
+            [self f:AM_FMT_LZ4 name:@"LZ4" summary:L(@"用 LZ4 快速压缩这一个文件。")],
         ];
     });
     return list;
@@ -74,6 +74,27 @@ NSErrorDomain const AMArchiveErrorDomain = @"AMArchiveErrorDomain";
 
 @implementation AMArchiveTask
 @end
+
+@implementation AMExtractOptions
++ (instancetype)fromSettings {
+    AMExtractOptions *o = [AMExtractOptions new];
+    NSUserDefaults *d = NSUserDefaults.standardUserDefaults;
+    o.smart = [d boolForKey:AMDefaultsSmartExtract];
+    o.deleteArchive = [d boolForKey:AMDefaultsDeleteAfterExtract];
+    o.passwords = @[];
+    return o;
+}
+@end
+
+static int AMIncludeEntry(void *ctx, const char *path) {
+    NSSet<NSString *> *set = (__bridge NSSet<NSString *> *)ctx;
+    NSString *p = [NSString stringWithUTF8String:path];
+    if (!p) return 0;
+    if ([set containsObject:p]) return 1;
+    for (NSString *sel in set)
+        if ([p hasPrefix:[sel stringByAppendingString:@"/"]]) return 1;
+    return 0;
+}
 
 #pragma mark - Progress relay (C callback -> main-queue block)
 
@@ -115,30 +136,30 @@ static NSError *AMMakeError(NSInteger code, const char *cmsg) {
     NSString *desc;
     BOOL showRaw = NO;
     switch (code) {
-    case AM_CANCELLED: desc = @"操作已取消。"; break;
-    case AM_NEED_PASSWORD: desc = @"此压缩包已加密，需要输入密码。"; break;
-    case AM_BAD_PASSWORD: desc = @"密码不正确，请重试。"; break;
-    case AMArchiveErrorEmpty: desc = @"压缩包里没有可以解压的内容。"; break;
+    case AM_CANCELLED: desc = L(@"操作已取消。"); break;
+    case AM_NEED_PASSWORD: desc = L(@"此压缩包已加密，需要输入密码。"); break;
+    case AM_BAD_PASSWORD: desc = L(@"密码不正确，请重试。"); break;
+    case AMArchiveErrorEmpty: desc = L(@"压缩包里没有可以解压的内容。"); break;
     case AM_UNSUPPORTED:
-        if (AMContains(raw, @"ncrypt") || AMContains(raw, @"crypto")) desc = @"暂不支持这种加密压缩包。目前可以解压加密的 ZIP，加密的 RAR 和 7Z 暂不支持。";
-        else if (AMContains(raw, @"Unrecognized")) desc = @"无法识别这个文件，它可能不是压缩包，或者已经损坏。";
-        else if (AMContains(raw, @"single file")) desc = @"这种格式只能压缩单个文件。请选择 ZIP、7Z 等格式来压缩多个项目或文件夹。";
-        else { desc = @"不支持的格式。"; showRaw = YES; }
+        if (AMContains(raw, @"ncrypt") || AMContains(raw, @"crypto")) desc = L(@"暂不支持这种加密压缩包。目前可以解压加密的 ZIP，加密的 RAR 和 7Z 暂不支持。");
+        else if (AMContains(raw, @"Unrecognized")) desc = L(@"无法识别这个文件，它可能不是压缩包，或者已经损坏。");
+        else if (AMContains(raw, @"single file")) desc = L(@"这种格式只能压缩单个文件。请选择 ZIP、7Z 等格式来压缩多个项目或文件夹。");
+        else { desc = L(@"不支持的格式。"); showRaw = YES; }
         break;
     default:
         showRaw = YES;
-        if (AMContains(raw, @"No space")) desc = @"存储空间不足。";
+        if (AMContains(raw, @"No space")) desc = L(@"存储空间不足。");
         else if (AMContains(raw, @"Truncated") || AMContains(raw, @"Premature") || AMContains(raw, @"EOF") || AMContains(raw, @"truncated"))
-            desc = @"压缩包不完整或已损坏，可能还没有下载完。如果是分卷压缩包，请确认所有分卷都在同一个文件夹中。";
-        else if (AMContains(raw, @"volume")) desc = @"这是分卷压缩包的一部分。请把所有分卷放在同一个文件夹中，然后从第一个分卷开始解压。";
+            desc = L(@"压缩包不完整或已损坏，可能还没有下载完。如果是分卷压缩包，请确认所有分卷都在同一个文件夹中。");
+        else if (AMContains(raw, @"volume")) desc = L(@"这是分卷压缩包的一部分。请把所有分卷放在同一个文件夹中，然后从第一个分卷开始解压。");
         else if (AMContains(raw, @"Damaged") || AMContains(raw, @"corrupt") || AMContains(raw, @"CRC") || AMContains(raw, @"checksum") || AMContains(raw, @"Invalid") || AMContains(raw, @"Bad"))
-            desc = @"压缩包已损坏，无法完整解压。";
-        else if (AMContains(raw, @"Permission")) desc = @"没有访问该文件的权限。";
-        else desc = @"操作未能完成。";
+            desc = L(@"压缩包已损坏，无法完整解压。");
+        else if (AMContains(raw, @"Permission")) desc = L(@"没有访问该文件的权限。");
+        else desc = L(@"操作未能完成。");
         break;
     }
     NSMutableDictionary *info = [NSMutableDictionary dictionaryWithObject:desc forKey:NSLocalizedDescriptionKey];
-    if (showRaw && raw.length) info[NSLocalizedFailureReasonErrorKey] = [NSString stringWithFormat:@"详细信息：%@", raw];
+    if (showRaw && raw.length) info[NSLocalizedFailureReasonErrorKey] = [NSString stringWithFormat:L(@"详细信息：%@"), raw];
     return [NSError errorWithDomain:AMArchiveErrorDomain code:code userInfo:info];
 }
 
@@ -189,14 +210,14 @@ static NSError *AMMakeError(NSInteger code, const char *cmsg) {
 + (NSString *)kindForArchive:(NSString *)fileName {
     NSString *lower = fileName.lowercaseString;
     NSRegularExpression *vol = [NSRegularExpression regularExpressionWithPattern:@"(\\.part\\d+\\.rar|\\.\\d{3}|\\.r\\d{2})$" options:0 error:nil];
-    if ([vol firstMatchInString:lower options:0 range:NSMakeRange(0, lower.length)]) return @"分卷压缩包";
+    if ([vol firstMatchInString:lower options:0 range:NSMakeRange(0, lower.length)]) return L(@"分卷压缩包");
     for (NSString *c in @[ @"tar.gz", @"tar.bz2", @"tar.xz", @"tar.zst", @"tar.lz4" ]) {
-        if ([lower hasSuffix:[@"." stringByAppendingString:c]]) return [NSString stringWithFormat:@"%@ 压缩包", c.uppercaseString];
+        if ([lower hasSuffix:[@"." stringByAppendingString:c]]) return [NSString stringWithFormat:L(@"%@ 压缩包"), c.uppercaseString];
     }
     NSString *ext = lower.pathExtension;
-    if ([ext isEqualToString:@"iso"]) return @"ISO 光盘映像";
-    if ([@[ @"apk", @"ipa", @"deb", @"rpm", @"xpi", @"crx" ] containsObject:ext]) return [NSString stringWithFormat:@"%@ 安装包", ext.uppercaseString];
-    return [NSString stringWithFormat:@"%@ 压缩包", ext.uppercaseString];
+    if ([ext isEqualToString:@"iso"]) return L(@"ISO 光盘映像");
+    if ([@[ @"apk", @"ipa", @"deb", @"rpm", @"xpi", @"crx" ] containsObject:ext]) return [NSString stringWithFormat:L(@"%@ 安装包"), ext.uppercaseString];
+    return [NSString stringWithFormat:L(@"%@ 压缩包"), ext.uppercaseString];
 }
 
 /// Ordered list of volumes that make up the archive at `url` (just `url` when it isn't split).
@@ -258,25 +279,44 @@ static NSError *AMMakeError(NSInteger code, const char *cmsg) {
     return @[ url ];
 }
 
-+ (am_read_opts)readOptionsWithPassword:(NSString *)password encoding:(NSString *)encoding {
-    am_read_opts o = { .password = password.length ? password.UTF8String : NULL,
-                       .charset = encoding.length ? encoding.UTF8String : NULL };
-    return o;
+/// Runs the C extractor over all volumes. Must be called on a background queue.
++ (int)extractVolumes:(NSArray<NSURL *> *)volumes
+                 into:(NSURL *)dir
+            passwords:(NSArray<NSString *> *)passwords
+            onlyPaths:(NSSet<NSString *> *)onlyPaths
+                relay:(AMProgressRelay *)relay
+                  err:(char *)err
+               errlen:(size_t)errlen {
+    NSString *encoding = [NSUserDefaults.standardUserDefaults stringForKey:AMDefaultsEncoding] ?: @"";
+    const char **pw = calloc(passwords.count + 1, sizeof *pw);
+    for (NSUInteger i = 0; i < passwords.count; i++) pw[i] = passwords[i].UTF8String;
+    am_read_opts ro = {
+        .passwords = pw,
+        .password_count = (int)passwords.count,
+        .charset = encoding.length ? encoding.UTF8String : NULL,
+        .include = onlyPaths.count ? AMIncludeEntry : NULL,
+        .include_ctx = (__bridge void *)onlyPaths,
+    };
+    const char **paths = calloc(volumes.count, sizeof *paths);
+    for (NSUInteger i = 0; i < volumes.count; i++) paths[i] = volumes[i].fileSystemRepresentation;
+    int rc = am_extract_volumes(paths, (int)volumes.count, dir.fileSystemRepresentation, &ro,
+                                AMRelayProgress, (__bridge void *)relay, err, errlen);
+    free(paths);
+    free(pw);
+    return rc;
 }
 
 #pragma mark - Extract
 
 + (AMArchiveTask *)extractArchive:(NSURL *)archive
                       toDirectory:(NSURL *)directory
-                         password:(NSString *)password
+                          options:(AMExtractOptions *)options
                          progress:(AMProgressBlock)progress
                        completion:(void (^)(NSURL *, NSError *))completion {
     AMArchiveTask *task = [AMArchiveTask new];
-    NSUserDefaults *d = NSUserDefaults.standardUserDefaults;
-    BOOL smart = [d boolForKey:AMDefaultsSmartExtract];
-    BOOL deleteAfter = [d boolForKey:AMDefaultsDeleteAfterExtract];
-    NSString *encoding = [d stringForKey:AMDefaultsEncoding] ?: @"";
-    NSString *pw = [password copy];
+    BOOL smart = options.smart, deleteAfter = options.deleteArchive && options.onlyPaths.count == 0;
+    NSArray<NSString *> *passwords = [options.passwords copy] ?: @[];
+    NSSet<NSString *> *onlyPaths = [options.onlyPaths copy];
 
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         NSFileManager *fm = NSFileManager.defaultManager;
@@ -290,17 +330,15 @@ static NSError *AMMakeError(NSInteger code, const char *cmsg) {
             relay.task = task;
             relay.block = progress;
             char err[1024] = "";
-            am_read_opts ro = [self readOptionsWithPassword:pw encoding:encoding];
-            const char **paths = calloc(volumes.count, sizeof *paths);
-            for (NSUInteger i = 0; i < volumes.count; i++) paths[i] = volumes[i].fileSystemRepresentation;
-            int rc = am_extract_volumes(paths, (int)volumes.count, tmp.fileSystemRepresentation, &ro,
-                                        AMRelayProgress, (__bridge void *)relay, err, sizeof err);
-            free(paths);
-
+            int rc = [self extractVolumes:volumes into:tmp passwords:passwords onlyPaths:onlyPaths relay:relay err:err errlen:sizeof err];
             if (rc == AM_OK) {
                 NSArray<NSURL *> *items = [fm contentsOfDirectoryAtURL:tmp includingPropertiesForKeys:nil options:0 error:nil];
+                NSURL *single = onlyPaths.count == 1 ? [tmp URLByAppendingPathComponent:onlyPaths.anyObject] : nil;
                 if (items.count == 0) {
                     error = AMMakeError(AMArchiveErrorEmpty, NULL);
+                } else if (single && [fm fileExistsAtPath:single.path]) {
+                    NSURL *dest = [AMUI uniqueURLForName:single.lastPathComponent inDirectory:directory];
+                    if ([fm moveItemAtURL:single toURL:dest error:&error]) result = dest;
                 } else if (smart && items.count == 1) {
                     NSURL *dest = [AMUI uniqueURLForName:items[0].lastPathComponent inDirectory:directory];
                     if ([fm moveItemAtURL:items[0] toURL:dest error:&error]) result = dest;
@@ -317,6 +355,35 @@ static NSError *AMMakeError(NSInteger code, const char *cmsg) {
         }
         [fm removeItemAtURL:tmp error:nil];
         dispatch_async(dispatch_get_main_queue(), ^{ completion(result, result ? nil : error); });
+    });
+    return task;
+}
+
++ (AMArchiveTask *)extractEntry:(NSString *)path
+                    fromArchive:(NSURL *)archive
+                      passwords:(NSArray<NSString *> *)passwords
+                       progress:(AMProgressBlock)progress
+                     completion:(void (^)(NSURL *, NSError *))completion {
+    AMArchiveTask *task = [AMArchiveTask new];
+    NSArray<NSString *> *pw = [passwords copy] ?: @[];
+    NSString *entry = [path copy];
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        NSFileManager *fm = NSFileManager.defaultManager;
+        NSURL *tmp = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:
+                                                 [@"Preview/" stringByAppendingString:NSUUID.UUID.UUIDString]] isDirectory:YES];
+        [fm createDirectoryAtURL:tmp withIntermediateDirectories:YES attributes:nil error:nil];
+        AMProgressRelay *relay = [AMProgressRelay new];
+        relay.task = task;
+        relay.block = progress;
+        char err[1024] = "";
+        int rc = [self extractVolumes:[self volumesForArchive:archive] into:tmp passwords:pw
+                            onlyPaths:[NSSet setWithObject:entry] relay:relay err:err errlen:sizeof err];
+        NSURL *file = [tmp URLByAppendingPathComponent:entry];
+        NSError *error = nil;
+        if (rc != AM_OK) error = AMMakeError(rc, err);
+        else if (![fm fileExistsAtPath:file.path]) error = AMMakeError(AMArchiveErrorEmpty, NULL);
+        if (error) [fm removeItemAtURL:tmp error:nil];
+        dispatch_async(dispatch_get_main_queue(), ^{ completion(error ? nil : file, error); });
     });
     return task;
 }
@@ -388,7 +455,7 @@ static int AMCollectEntry(void *ctx, const am_entry_info *info) {
         NSArray<NSURL *> *volumes = [self volumesForArchive:archive];
         NSMutableArray *list = [NSMutableArray array];
         char err[1024] = "";
-        am_read_opts ro = [self readOptionsWithPassword:nil encoding:encoding];
+        am_read_opts ro = { .charset = encoding.length ? encoding.UTF8String : NULL };
         const char **paths = calloc(volumes.count, sizeof *paths);
         for (NSUInteger i = 0; i < volumes.count; i++) paths[i] = volumes[i].fileSystemRepresentation;
         int rc = am_list_volumes(paths, (int)volumes.count, &ro, AMCollectEntry, (__bridge void *)list, err, sizeof err);

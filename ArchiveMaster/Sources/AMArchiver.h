@@ -33,6 +33,16 @@ typedef NS_ENUM(NSInteger, AMArchiveErrorCode) {
 @property (nonatomic) BOOL encrypted;
 @end
 
+/// How to extract. `+fromSettings` reads the user's preferences and the saved password book.
+@interface AMExtractOptions : NSObject
+@property (nonatomic, copy) NSArray<NSString *> *passwords;
+/// Only these entry paths (and everything under selected folders); nil = everything.
+@property (nonatomic, copy, nullable) NSSet<NSString *> *onlyPaths;
+@property (nonatomic) BOOL smart;
+@property (nonatomic) BOOL deleteArchive;
++ (instancetype)fromSettings;
+@end
+
 /// Cancellation token for a running operation.
 @interface AMArchiveTask : NSObject
 @property (atomic) BOOL cancelled;
@@ -49,14 +59,25 @@ typedef void (^AMProgressBlock)(double fraction, NSString *_Nullable currentItem
 /// Human readable kind, e.g. "ZIP 压缩包".
 + (NSString *)kindForArchive:(NSString *)fileName;
 
+/// Ordered list of volumes that make up the archive (just `url` when it isn't split).
++ (NSArray<NSURL *> *)volumesForArchive:(NSURL *)url;
+
 /// Extracts into `directory`. With "smart extract" on, a single top-level item lands directly in
-/// `directory`; otherwise everything goes into a new folder named after the archive.
+/// `directory`; otherwise everything goes into a new folder named after the archive. When exactly one
+/// path is selected, that item itself is placed in `directory`.
 /// Completion (main queue) gets the URL of the extracted item/folder.
 + (AMArchiveTask *)extractArchive:(NSURL *)archive
                       toDirectory:(NSURL *)directory
-                         password:(nullable NSString *)password
+                          options:(AMExtractOptions *)options
                          progress:(nullable AMProgressBlock)progress
                        completion:(void (^)(NSURL *_Nullable result, NSError *_Nullable error))completion;
+
+/// Extracts a single entry into a temporary folder (for previewing). Completion gets the file URL.
++ (AMArchiveTask *)extractEntry:(NSString *)path
+                    fromArchive:(NSURL *)archive
+                      passwords:(NSArray<NSString *> *)passwords
+                       progress:(nullable AMProgressBlock)progress
+                     completion:(void (^)(NSURL *_Nullable file, NSError *_Nullable error))completion;
 
 /// Creates "<name>.<ext>" (made unique) in `directory`. Completion runs on the main queue.
 + (AMArchiveTask *)createArchiveNamed:(NSString *)name

@@ -1,62 +1,180 @@
 #import "AMActions.h"
+#import "AMPasswordBook.h"
 #import "AMProgressController.h"
+#import "AMQuickLook.h"
 #import "AMUI.h"
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
+@implementation AMPickedAsset
+@end
+
+typedef AMArchiveTask *_Nonnull (^AMArchiveWork)(NSArray<NSString *> *passwords, AMProgressBlock progress,
+                                                   void (^done)(NSURL *_Nullable result, NSError *_Nullable error));
+
 @implementation AMActions
 
-+ (void)extractArchive:(NSURL *)archive into:(NSURL *)directory from:(UIViewController *)vc completion:(void (^)(NSURL *))completion {
-    [self extractArchive:archive into:directory password:nil from:vc completion:completion];
+#pragma mark - Password-aware runner
+
++ (void)askPasswordTitle:(NSString *)title
+                 message:(NSString *)message
+             actionTitle:(NSString *)actionTitle
+                    from:(UIViewController *)vc
+                 handler:(void (^)(NSString *text, BOOL remember))handler {
+    UIAlertController *a = [UIAlertController alertControllerWithTitle:title message:message preferredStyle:UIAlertControllerStyleAlert];
+    [a addTextFieldWithConfigurationHandler:^(UITextField *tf) {
+        tf.placeholder = L(@"密码");
+        tf.secureTextEntry = YES;
+        tf.autocorrectionType = UITextAutocorrectionTypeNo;
+        tf.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    }];
+    __weak UIAlertController *weakA = a;
+    UIAlertAction *go = [UIAlertAction actionWithTitle:actionTitle style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) {
+        handler(weakA.textFields.firstObject.text ?: @"", NO);
+    }];
+    [a addAction:go];
+    [a addAction:[UIAlertAction actionWithTitle:L(@"确定并存入密码本") style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) {
+           handler(weakA.textFields.firstObject.text ?: @"", YES);
+       }]];
+    [a addAction:[UIAlertAction actionWithTitle:L(@"取消") style:UIAlertActionStyleCancel handler:^(UIAlertAction *x) {
+           handler(@"", NO);
+       }]];
+    a.preferredAction = go;
+    [[AMUI topPresenterFrom:vc] presentViewController:a animated:YES completion:nil];
 }
 
-+ (void)extractArchive:(NSURL *)archive
-                  into:(NSURL *)directory
-              password:(NSString *)password
-                  from:(UIViewController *)vc
-            completion:(void (^)(NSURL *))completion {
-    AMProgressController *p = [[AMProgressController alloc] initWithTitle:@"正在解压…" symbol:@"arrow.up.bin"];
+/// Runs `work` behind a progress card. Saved passwords are tried first; if the archive still needs
+/// one, asks and retries. Completion gets the result, or nil plus whether the user cancelled.
++ (void)runJobTitle:(NSString *)title
+             symbol:(NSString *)symbol
+            archive:(NSURL *)archive
+              typed:(NSString *)typed
+           remember:(BOOL)remember
+               from:(UIViewController *)vc
+               work:(AMArchiveWork)work
+         completion:(void (^)(NSURL *result, BOOL cancelled))completion {
+    NSMutableArray<NSString *> *passwords = [NSMutableArray array];
+    if (typed.length) [passwords addObject:typed];
+    for (NSString *s in AMPasswordBook.passwords)
+        if (![passwords containsObject:s]) [passwords addObject:s];
+
+    AMProgressController *p = [[AMProgressController alloc] initWithTitle:title symbol:symbol];
     [p setProgress:0 detail:archive.lastPathComponent];
     __block AMArchiveTask *task = nil;
     p.cancelHandler = ^{ task.cancelled = YES; };
-    UIViewController *presenter = [AMUI topPresenterFrom:vc];
-    [presenter presentViewController:p animated:YES completion:^{
-        task = [AMArchiver extractArchive:archive toDirectory:directory password:password progress:^(double fraction, NSString *item) {
+    id op = [AMUI beginLongOperation];
+    [[AMUI topPresenterFrom:vc] presentViewController:p animated:YES completion:^{
+        task = work(passwords, ^(double fraction, NSString *item) {
             [p setProgress:fraction detail:item];
-        } completion:^(NSURL *result, NSError *error) {
+        }, ^(NSURL *result, NSError *error) {
+            [AMUI endLongOperation:op];
             [p dismissViewControllerAnimated:YES completion:^{
                 if (result) {
-                    [AMUI hapticSuccess];
-                    [AMUI toast:[NSString stringWithFormat:@"已解压“%@”", result.lastPathComponent] symbol:@"checkmark.circle.fill"];
-                    if (completion) completion(result);
+                    if (remember && typed.length) [AMPasswordBook addPassword:typed];
+                    completion(result, NO);
                     return;
                 }
                 if (error.code == AMArchiveErrorCancelled) {
-                    if (completion) completion(nil);
+                    completion(nil, YES);
                     return;
                 }
                 if (error.code == AMArchiveErrorNeedPassword || error.code == AMArchiveErrorBadPassword) {
-                    BOOL bad = error.code == AMArchiveErrorBadPassword;
-                    if (bad) [AMUI hapticError];
-                    [AMUI promptWithTitle:bad ? @"密码错误" : @"输入密码"
-                                  message:bad ? @"请重新输入密码。" : [NSString stringWithFormat:@"“%@”已加密。", archive.lastPathComponent]
-                              placeholder:@"密码"
-                                  initial:nil
-                                   secure:YES
-                             confirmTitle:@"解压"
-                                     from:vc
-                                  handler:^(NSString *text) {
-                        if (text.length) [self extractArchive:archive into:directory password:text from:vc completion:completion];
-                        else if (completion) completion(nil);
+                    BOOL wrong = typed.length > 0;
+                    if (wrong) [AMUI hapticError];
+                    NSString *name = archive.lastPathComponent;
+                    NSString *msg = wrong ? L(@"密码不正确，请重新输入。")
+                                  : AMPasswordBook.passwords.count ? [NSString stringWithFormat:L(@"“%@”已加密，密码本中没有匹配的密码。"), name]
+                                                                   : [NSString stringWithFormat:L(@"“%@”已加密。"), name];
+                    [self askPasswordTitle:wrong ? L(@"密码错误") : L(@"输入密码") message:msg actionTitle:L(@"确定") from:vc
+                                   handler:^(NSString *text, BOOL rememberIt) {
+                        if (text.length) [self runJobTitle:title symbol:symbol archive:archive typed:text remember:rememberIt from:vc work:work completion:completion];
+                        else completion(nil, YES);
                     }];
                     return;
                 }
                 [AMUI hapticError];
-                [AMUI showError:error title:@"无法解压" from:vc];
-                if (completion) completion(nil);
+                [AMUI showError:error title:L(@"无法解压") from:vc];
+                completion(nil, NO);
             }];
-        }];
+        });
     }];
 }
+
+#pragma mark - Extract
+
++ (void)extractArchive:(NSURL *)archive into:(NSURL *)directory onlyPaths:(NSSet<NSString *> *)paths from:(UIViewController *)vc completion:(void (^)(NSURL *))completion {
+    [self extractArchive:archive into:directory onlyPaths:paths announce:YES from:vc completion:^(NSURL *result, BOOL cancelled) {
+        if (completion) completion(result);
+    }];
+}
+
++ (void)extractArchive:(NSURL *)archive
+                  into:(NSURL *)directory
+             onlyPaths:(NSSet<NSString *> *)paths
+              announce:(BOOL)announce
+                  from:(UIViewController *)vc
+            completion:(void (^)(NSURL *result, BOOL cancelled))completion {
+    AMArchiveWork work = ^AMArchiveTask *(NSArray<NSString *> *passwords, AMProgressBlock progress, void (^done)(NSURL *, NSError *)) {
+        AMExtractOptions *o = [AMExtractOptions fromSettings];
+        o.passwords = passwords;
+        o.onlyPaths = paths;
+        return [AMArchiver extractArchive:archive toDirectory:directory options:o progress:progress completion:done];
+    };
+    [self runJobTitle:L(@"正在解压…") symbol:@"arrow.up.bin" archive:archive typed:nil remember:NO from:vc work:work
+           completion:^(NSURL *result, BOOL cancelled) {
+        if (result) {
+            [AMUI hapticSuccess];
+            if (announce) [AMUI toast:[NSString stringWithFormat:L(@"已解压“%@”"), result.lastPathComponent] symbol:@"checkmark.circle.fill"];
+        }
+        completion(result, cancelled);
+    }];
+}
+
++ (void)extractArchives:(NSArray<NSURL *> *)archives into:(NSURL *)directory from:(UIViewController *)vc completion:(void (^)(NSArray<NSURL *> *))completion {
+    [self extractArchives:archives index:0 results:[NSMutableArray array] into:directory from:vc completion:completion];
+}
+
++ (void)extractArchives:(NSArray<NSURL *> *)archives
+                  index:(NSUInteger)index
+                results:(NSMutableArray<NSURL *> *)results
+                   into:(NSURL *)directory
+                   from:(UIViewController *)vc
+             completion:(void (^)(NSArray<NSURL *> *))completion {
+    if (index >= archives.count) {
+        if (results.count) [AMUI toast:[NSString stringWithFormat:L(@"已解压 %lu 个压缩包"), (unsigned long)results.count] symbol:@"checkmark.circle.fill"];
+        if (completion) completion(results);
+        return;
+    }
+    [self extractArchive:archives[index] into:directory onlyPaths:nil announce:NO from:vc completion:^(NSURL *result, BOOL cancelled) {
+        if (result) [results addObject:result];
+        if (cancelled) {  // stop the whole batch
+            if (completion) completion(results);
+            return;
+        }
+        [self extractArchives:archives index:index + 1 results:results into:directory from:vc completion:completion];
+    }];
+}
+
++ (void)previewEntry:(NSString *)path inArchive:(NSURL *)archive from:(UIViewController *)vc {
+    AMArchiveWork work = ^AMArchiveTask *(NSArray<NSString *> *passwords, AMProgressBlock progress, void (^done)(NSURL *, NSError *)) {
+        return [AMArchiver extractEntry:path fromArchive:archive passwords:passwords progress:progress completion:done];
+    };
+    [self runJobTitle:L(@"正在打开…") symbol:@"eye" archive:archive typed:nil remember:NO from:vc work:work
+           completion:^(NSURL *file, BOOL cancelled) {
+        if (!file) return;
+        // file = tmp/Preview/<uuid>/<entry path>; remove the <uuid> folder when the preview closes.
+        NSString *previewRoot = [NSTemporaryDirectory() stringByAppendingPathComponent:@"Preview"].stringByStandardizingPath;
+        NSString *rest = [file.path.stringByStandardizingPath stringByReplacingOccurrencesOfString:[previewRoot stringByAppendingString:@"/"] withString:@""];
+        NSString *uuid = rest.pathComponents.firstObject;
+        AMQuickLook *ql = [[AMQuickLook alloc] initWithItems:@[ [AMPreviewItem itemWithURL:file title:file.lastPathComponent] ] index:0];
+        ql.onDismiss = ^{
+            if (uuid.length && ![uuid isEqualToString:rest])
+                [NSFileManager.defaultManager removeItemAtPath:[previewRoot stringByAppendingPathComponent:uuid] error:nil];
+        };
+        [[AMUI topPresenterFrom:vc] presentViewController:ql animated:YES completion:nil];
+    }];
+}
+
+#pragma mark - Compress
 
 + (NSString *)suggestedNameForItems:(NSArray<NSURL *> *)items {
     if (items.count == 1) {
@@ -66,7 +184,7 @@
         NSString *n = isDir.boolValue ? u.lastPathComponent : u.lastPathComponent.stringByDeletingPathExtension;
         if (n.length) return n;
     }
-    return @"归档";
+    return L(@"归档");
 }
 
 + (void)compressItems:(NSArray<NSURL *> *)items suggestedName:(NSString *)name into:(NSURL *)directory from:(UIViewController *)vc completion:(void (^)(NSURL *))completion {
@@ -83,21 +201,23 @@
 }
 
 + (void)compressItems:(NSArray<NSURL *> *)items settings:(AMCompressSettings *)s into:(NSURL *)directory from:(UIViewController *)vc completion:(void (^)(NSURL *))completion {
-    AMProgressController *p = [[AMProgressController alloc] initWithTitle:@"正在压缩…" symbol:@"doc.zipper"];
+    AMProgressController *p = [[AMProgressController alloc] initWithTitle:L(@"正在压缩…") symbol:@"doc.zipper"];
     [p setProgress:0 detail:[NSString stringWithFormat:@"%@.%@", s.name, @(am_format_extension(s.format))]];
     __block AMArchiveTask *task = nil;
     p.cancelHandler = ^{ task.cancelled = YES; };
+    id op = [AMUI beginLongOperation];
     [[AMUI topPresenterFrom:vc] presentViewController:p animated:YES completion:^{
         task = [AMArchiver createArchiveNamed:s.name inDirectory:directory fromItems:items format:s.format level:s.level
                                      password:s.password encryption:s.encryption progress:^(double fraction, NSString *item) {
             [p setProgress:fraction detail:item];
         } completion:^(NSURL *result, NSError *error) {
+            [AMUI endLongOperation:op];
             [p dismissViewControllerAnimated:YES completion:^{
                 if (result) {
                     [AMUI hapticSuccess];
                 } else if (error.code != AMArchiveErrorCancelled) {
                     [AMUI hapticError];
-                    [AMUI showError:error title:@"无法压缩" from:vc];
+                    [AMUI showError:error title:L(@"无法压缩") from:vc];
                 }
                 if (completion) completion(result);
             }];
@@ -117,17 +237,18 @@
     return nil;
 }
 
-+ (void)importPickerResults:(NSArray<PHPickerResult *> *)results into:(NSURL *)directory imagesOnly:(BOOL)imagesOnly from:(UIViewController *)vc completion:(void (^)(NSArray<NSURL *> *))completion {
++ (void)importPickerResults:(NSArray<PHPickerResult *> *)results into:(NSURL *)directory imagesOnly:(BOOL)imagesOnly from:(UIViewController *)vc completion:(void (^)(NSArray<AMPickedAsset *> *))completion {
     if (results.count == 0) { completion(@[]); return; }
-    AMProgressController *p = [[AMProgressController alloc] initWithTitle:@"正在读取照片…" symbol:@"photo.on.rectangle"];
+    AMProgressController *p = [[AMProgressController alloc] initWithTitle:L(@"正在读取照片…") symbol:@"photo.on.rectangle"];
     [p setProgress:0 detail:[NSString stringWithFormat:@"0 / %lu", (unsigned long)results.count]];
     AMArchiveTask *task = [AMArchiveTask new];
     p.cancelHandler = ^{ task.cancelled = YES; };
+    id op = [AMUI beginLongOperation];
     [[AMUI topPresenterFrom:vc] presentViewController:p animated:YES completion:^{
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         NSFileManager *fm = NSFileManager.defaultManager;
         [fm createDirectoryAtURL:directory withIntermediateDirectories:YES attributes:nil error:nil];
-        NSMutableArray<NSURL *> *urls = [NSMutableArray array];
+        NSMutableArray<AMPickedAsset *> *assets = [NSMutableArray array];
         NSInteger failed = 0;
         for (NSUInteger i = 0; i < results.count && !task.cancelled; i++) {
             NSItemProvider *provider = results[i].itemProvider;
@@ -147,8 +268,15 @@
                 dispatch_semaphore_signal(sem);
             }];
             dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
-            if (copied) [urls addObject:copied];
-            else failed++;
+            if (copied) {
+                AMPickedAsset *a = [AMPickedAsset new];
+                a.url = copied;
+                a.assetIdentifier = results[i].assetIdentifier;
+                a.isVideo = [[UTType typeWithIdentifier:type] conformsToType:UTTypeMovie];
+                [assets addObject:a];
+            } else {
+                failed++;
+            }
             NSUInteger done = i + 1;
             dispatch_async(dispatch_get_main_queue(), ^{
                 [p setProgress:(double)done / results.count detail:[NSString stringWithFormat:@"%lu / %lu", (unsigned long)done, (unsigned long)results.count]];
@@ -156,15 +284,16 @@
         }
         BOOL cancelled = task.cancelled;
         dispatch_async(dispatch_get_main_queue(), ^{
+            [AMUI endLongOperation:op];
             [p dismissViewControllerAnimated:YES completion:^{
                 if (cancelled) {
-                    for (NSURL *u in urls) [fm removeItemAtURL:u error:nil];
+                    for (AMPickedAsset *a in assets) [fm removeItemAtURL:a.url error:nil];
                     completion(@[]);
                     return;
                 }
                 if (failed > 0)
-                    [AMUI showMessage:[NSString stringWithFormat:@"有 %ld 项无法读取（可能尚未从 iCloud 下载）。", (long)failed] title:@"部分项目未导入" from:vc];
-                completion(urls);
+                    [AMUI showMessage:[NSString stringWithFormat:L(@"有 %ld 项无法读取（可能尚未从 iCloud 下载）。"), (long)failed] title:L(@"部分项目未导入") from:vc];
+                completion(assets);
             }];
         });
     });

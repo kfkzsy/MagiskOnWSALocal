@@ -17,9 +17,9 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0.0</string>
+	<string>1.1.0</string>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>2</string>
 	<key>CFBundleSupportedPlatforms</key>
 	<array>
 		<string>iPhoneOS</string>
@@ -85,9 +85,9 @@
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>用于把“图片瘦身”处理后的照片存入相册。</string>
+	<string>用于把压缩后的照片和视频存入相册。</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>用于读取你选择的照片和视频，以便压缩或打包。</string>
+	<string>用于读取你选择的照片和视频，以及在你开启“删除原图”时把原照片移到“最近删除”。</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>CFBundleIcons</key>

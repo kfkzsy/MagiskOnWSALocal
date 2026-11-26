@@ -78,7 +78,7 @@
     [card.contentView addSubview:separator];
 
     self.cancelButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    [self.cancelButton setTitle:@"取消" forState:UIControlStateNormal];
+    [self.cancelButton setTitle:L(@"取消") forState:UIControlStateNormal];
     self.cancelButton.titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
     self.cancelButton.titleLabel.adjustsFontForContentSizeCategory = YES;
     self.cancelButton.translatesAutoresizingMaskIntoConstraints = NO;
@@ -117,7 +117,7 @@
 
 - (void)cancelTapped {
     self.cancelButton.enabled = NO;
-    [self.cancelButton setTitle:@"正在取消…" forState:UIControlStateDisabled];
+    [self.cancelButton setTitle:L(@"正在取消…") forState:UIControlStateDisabled];
     if (self.cancelHandler) self.cancelHandler();
 }
 

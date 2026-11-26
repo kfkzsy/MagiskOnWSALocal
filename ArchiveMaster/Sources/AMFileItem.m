@@ -106,7 +106,7 @@
 - (NSString *)subtitle {
     NSString *date = self.modified ? [AMUI dateString:self.modified] : @"";
     if (self.isDirectory) {
-        NSString *count = self.childCount == 0 ? @"空" : [NSString stringWithFormat:@"%ld 项", (long)self.childCount];
+        NSString *count = self.childCount == 0 ? L(@"空") : [NSString stringWithFormat:L(@"%ld 项"), (long)self.childCount];
         return date.length ? [NSString stringWithFormat:@"%@ · %@", date, count] : count;
     }
     NSString *size = [AMUI byteString:(long long)self.size];

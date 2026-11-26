@@ -52,7 +52,7 @@ static NSInteger AMLevelIndex(NSInteger level) {
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"压缩";
+    self.title = L(@"压缩");
     self.tableView.keyboardDismissMode = UIScrollViewKeyboardDismissModeInteractive;
 
     __weak typeof(self) weak = self;
@@ -60,7 +60,7 @@ static NSInteger AMLevelIndex(NSInteger level) {
                                                                                          primaryAction:[UIAction actionWithHandler:^(__kindof UIAction *a) {
         [weak.navigationController dismissViewControllerAnimated:YES completion:nil];
     }]];
-    self.goItem = [[UIBarButtonItem alloc] initWithTitle:@"压缩" style:UIBarButtonItemStyleDone target:self action:@selector(confirm)];
+    self.goItem = [[UIBarButtonItem alloc] initWithTitle:L(@"压缩") style:UIBarButtonItemStyleDone target:self action:@selector(confirm)];
     self.navigationItem.rightBarButtonItem = self.goItem;
 
     // Formats available for this selection.
@@ -95,10 +95,10 @@ static NSInteger AMLevelIndex(NSInteger level) {
 - (void)buildCells {
     __weak typeof(self) weak = self;
     UITextField *tf = nil;
-    self.nameCell = [AMForm textFieldCellWithPlaceholder:@"压缩包名称" text:self.suggestedName secure:NO outTextField:&tf];
+    self.nameCell = [AMForm textFieldCellWithPlaceholder:L(@"压缩包名称") text:self.suggestedName secure:NO outTextField:&tf];
     self.nameField = tf;
     self.nameField.delegate = self;
-    self.nameField.accessibilityLabel = @"压缩包名称";
+    self.nameField.accessibilityLabel = L(@"压缩包名称");
     self.extLabel = [UILabel new];
     self.extLabel.textColor = UIColor.secondaryLabelColor;
     self.extLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
@@ -111,26 +111,26 @@ static NSInteger AMLevelIndex(NSInteger level) {
     NSInteger selected = 0;
     for (NSUInteger i = 0; i < self.formats.count; i++) {
         AMFormatInfo *f = self.formats[i];
-        [names addObject:f.singleFile ? [NSString stringWithFormat:@"%@（单个文件）", f.name] : f.name];
+        [names addObject:f.singleFile ? [NSString stringWithFormat:L(@"%@（单个文件）"), f.name] : f.name];
         if (f.format == self.format) selected = (NSInteger)i;
     }
-    self.formatCell = [AMForm popupCellWithTitle:@"格式" options:names selected:selected handler:^(NSInteger index) {
+    self.formatCell = [AMForm popupCellWithTitle:L(@"格式") options:names selected:selected handler:^(NSInteger index) {
         [weak formatSelected:index];
     }];
 
-    self.levelCell = [AMForm segmentedCellWithItems:@[ @"仅存储", @"快速", @"标准", @"最高" ]
+    self.levelCell = [AMForm segmentedCellWithItems:@[ L(@"仅存储"), L(@"快速"), L(@"标准"), L(@"最高") ]
                                            selected:AMLevelIndex(self.level)
                                             handler:^(NSInteger index) {
         weak.level = kLevels[index];
     }];
 
-    self.pwSwitchCell = [AMForm switchCellWithTitle:@"设置密码" on:NO handler:^(BOOL on) {
+    self.pwSwitchCell = [AMForm switchCellWithTitle:L(@"设置密码") on:NO handler:^(BOOL on) {
         [weak passwordToggled:on];
     } outSwitch:nil];
 
-    self.pwCell = [AMForm textFieldCellWithPlaceholder:@"密码" text:nil secure:YES outTextField:&tf];
+    self.pwCell = [AMForm textFieldCellWithPlaceholder:L(@"密码") text:nil secure:YES outTextField:&tf];
     self.pwField = tf;
-    self.confirmCell = [AMForm textFieldCellWithPlaceholder:@"再次输入密码" text:nil secure:YES outTextField:&tf];
+    self.confirmCell = [AMForm textFieldCellWithPlaceholder:L(@"再次输入密码") text:nil secure:YES outTextField:&tf];
     self.confirmField = tf;
     for (UITextField *f in @[ self.pwField, self.confirmField ]) {
         f.delegate = self;
@@ -141,15 +141,15 @@ static NSInteger AMLevelIndex(NSInteger level) {
     self.pwField.returnKeyType = UIReturnKeyNext;
     UIImageView *warn = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"exclamationmark.circle.fill"]];
     warn.tintColor = UIColor.systemRedColor;
-    warn.accessibilityLabel = @"两次输入的密码不一致";
+    warn.accessibilityLabel = L(@"两次输入的密码不一致");
     self.confirmField.rightView = warn;
     self.confirmField.rightViewMode = UITextFieldViewModeNever;
 
-    self.encCell = [AMForm popupCellWithTitle:@"加密方式" options:@[ @"AES-256（推荐）", @"ZipCrypto（兼容旧软件）" ] selected:0 handler:^(NSInteger index) {
+    self.encCell = [AMForm popupCellWithTitle:L(@"加密方式") options:@[ L(@"AES-256（推荐）"), L(@"ZipCrypto（兼容旧软件）") ] selected:0 handler:^(NSInteger index) {
         weak.encryption = index == 0 ? AM_ENC_AES256 : AM_ENC_ZIPCRYPTO;
     }];
 
-    self.summaryCell = [AMForm valueCellWithTitle:@"内容" detail:@"正在计算…" symbol:nil tint:nil accessory:UITableViewCellAccessoryNone];
+    self.summaryCell = [AMForm valueCellWithTitle:L(@"内容") detail:L(@"正在计算…") symbol:nil tint:nil accessory:UITableViewCellAccessoryNone];
 }
 
 - (void)computeSummary {
@@ -159,7 +159,7 @@ static NSInteger AMLevelIndex(NSInteger level) {
         for (NSURL *u in items) total += [AMUI sizeOfItemAtURL:u];
         dispatch_async(dispatch_get_main_queue(), ^{
             UIListContentConfiguration *c = (UIListContentConfiguration *)self.summaryCell.contentConfiguration;
-            c.secondaryText = [NSString stringWithFormat:@"%lu 项 · %@", (unsigned long)items.count, [AMUI byteString:(long long)total]];
+            c.secondaryText = [NSString stringWithFormat:L(@"%lu 项 · %@"), (unsigned long)items.count, [AMUI byteString:(long long)total]];
             self.summaryCell.contentConfiguration = c;
         });
     });
@@ -273,10 +273,10 @@ static NSInteger AMLevelIndex(NSInteger level) {
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
     switch ([self kindForSection:section]) {
-    case AMCSectionName: return @"名称";
-    case AMCSectionFormat: return @"格式";
-    case AMCSectionLevel: return @"压缩级别";
-    case AMCSectionPassword: return @"加密";
+    case AMCSectionName: return L(@"名称");
+    case AMCSectionFormat: return L(@"格式");
+    case AMCSectionLevel: return L(@"压缩级别");
+    case AMCSectionPassword: return L(@"加密");
     case AMCSectionSummary: return nil;
     }
     return nil;
@@ -286,9 +286,9 @@ static NSInteger AMLevelIndex(NSInteger level) {
     switch ([self kindForSection:section]) {
     case AMCSectionName: return nil;
     case AMCSectionFormat: return self.info.summary;
-    case AMCSectionLevel: return @"级别越高，文件越小，但耗时越长。照片、视频等本身已压缩过的文件通常很难再变小。";
+    case AMCSectionLevel: return L(@"级别越高，文件越小，但耗时越长。照片、视频等本身已压缩过的文件通常很难再变小。");
     case AMCSectionPassword:
-        return @"加密后，打开压缩包里的文件需要输入密码，忘记密码将无法解压。AES-256 更安全；ZipCrypto 兼容 Windows 自带解压等旧软件，但安全性较低。";
+        return L(@"加密后，打开压缩包里的文件需要输入密码，忘记密码将无法解压。AES-256 更安全；ZipCrypto 兼容 Windows 自带解压等旧软件，但安全性较低。");
     case AMCSectionSummary: return nil;
     }
     return nil;
