@@ -5,6 +5,7 @@
 #import "AMFileItem.h"
 #import "AMFilesSplitViewController.h"
 #import "AMQuickLook.h"
+#import "AMStorage.h"
 #import "AMFolderPickerViewController.h"
 #import "AMUI.h"
 #import <PhotosUI/PhotosUI.h>
@@ -37,7 +38,8 @@ static NSCache<NSString *, UIImage *> *AMThumbCache(void) {
 
 @interface AMFileBrowserViewController () <UISearchResultsUpdating, UIDocumentPickerDelegate, PHPickerViewControllerDelegate,
                                            QLPreviewControllerDataSource>
-@property (nonatomic, readwrite) NSURL *directory;
+@property (nonatomic, readwrite, nullable) NSURL *directory;
+@property (nonatomic) BOOL saveRoot;
 @property (nonatomic, copy) NSArray<AMFileItem *> *allItems;
 @property (nonatomic, copy) NSArray<AMFileItem *> *items;
 @property (nonatomic, strong) UISearchController *search;
@@ -63,6 +65,21 @@ static NSCache<NSString *, UIImage *> *AMThumbCache(void) {
     return self;
 }
 
+- (instancetype)initForSaveLocation {
+    if ((self = [self initWithDirectory:AMStorage.saveFolder])) _saveRoot = YES;
+    return self;
+}
+
+- (void)saveFolderChanged:(NSNotification *)note {
+    self.directory = AMStorage.saveFolder;
+    [self.navigationController popToRootViewControllerAnimated:NO];
+    [self.filesSplit clearDetail];
+    self.title = self.defaultTitle;
+    if (self.source) { dispatch_source_cancel(self.source); self.source = nil; }
+    [self startMonitoring];
+    [self reload];
+}
+
 - (void)dealloc {
     if (_source) dispatch_source_cancel(_source);
 }
@@ -78,11 +95,12 @@ static NSCache<NSString *, UIImage *> *AMThumbCache(void) {
 }
 
 - (BOOL)isRoot {
-    return [self.directory.URLByResolvingSymlinksInPath.path isEqualToString:AMUI.documentsURL.URLByResolvingSymlinksInPath.path];
+    return self.saveRoot;
 }
 
 - (NSString *)defaultTitle {
-    return self.isRoot ? L(@"文件") : self.directory.lastPathComponent;
+    if (self.saveRoot) return self.directory ? AMStorage.saveFolderName : L(@"文件");
+    return self.directory.lastPathComponent;
 }
 
 #pragma mark - Lifecycle
@@ -123,6 +141,8 @@ static NSCache<NSString *, UIImage *> *AMThumbCache(void) {
     [self startMonitoring];
     [self reload];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(reload) name:UIApplicationWillEnterForegroundNotification object:nil];
+    if (self.saveRoot)
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(saveFolderChanged:) name:AMSaveFolderDidChangeNotification object:nil];
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -142,6 +162,11 @@ static NSCache<NSString *, UIImage *> *AMThumbCache(void) {
 - (void)buildBarItems {
     __weak typeof(self) weak = self;
     UIMenu *addMenu = [UIMenu menuWithTitle:@"" children:@[
+        [UIMenu menuWithTitle:@"" image:nil identifier:nil options:UIMenuOptionsDisplayInline children:@[
+            [UIAction actionWithTitle:L(@"打开压缩包…") image:[UIImage systemImageNamed:@"archivebox"] identifier:nil handler:^(__kindof UIAction *a) {
+                [weak openArchives];
+            }],
+        ]],
         [UIAction actionWithTitle:L(@"从“文件”导入") image:[UIImage systemImageNamed:@"doc.badge.plus"] identifier:nil handler:^(__kindof UIAction *a) {
             [weak importFiles];
         }],
@@ -187,12 +212,21 @@ static NSCache<NSString *, UIImage *> *AMThumbCache(void) {
         a.state = i == current ? UIMenuElementStateOn : UIMenuElementStateOff;
         [sorts addObject:a];
     }
-    return [UIMenu menuWithTitle:@"" children:@[
+    NSMutableArray *children = [NSMutableArray arrayWithArray:@[
         [UIAction actionWithTitle:L(@"选择") image:[UIImage systemImageNamed:@"checkmark.circle"] identifier:nil handler:^(__kindof UIAction *a) {
             [weak setEditing:YES animated:YES];
         }],
         [UIMenu menuWithTitle:L(@"排序方式") image:nil identifier:nil options:UIMenuOptionsDisplayInline children:sorts],
     ]];
+    if (self.saveRoot) {
+        [children addObject:[UIMenu menuWithTitle:@"" image:nil identifier:nil options:UIMenuOptionsDisplayInline children:@[
+            [UIAction actionWithTitle:L(@"更换保存位置…") image:[UIImage systemImageNamed:@"folder.badge.gearshape"] identifier:nil handler:^(__kindof UIAction *a) {
+                typeof(self) strong = weak;
+                if (strong) [AMStorage chooseSaveFolderFrom:strong completion:nil];
+            }],
+        ]]];
+    }
+    return [UIMenu menuWithTitle:@"" children:children];
 }
 
 #pragma mark - Data
@@ -211,7 +245,9 @@ static NSCache<NSString *, UIImage *> *AMThumbCache(void) {
         selected = s;
     }
     AMSortMode sort = (AMSortMode)[NSUserDefaults.standardUserDefaults integerForKey:AMDefaultsSort];
-    self.allItems = [AMFileItem itemsInDirectory:self.directory sort:sort];
+    self.allItems = self.directory ? [AMFileItem itemsInDirectory:self.directory sort:sort] : @[];
+    self.addItem.enabled = self.moreItem.enabled = self.directory != nil;
+    self.navigationItem.searchController = self.directory ? self.search : nil;
     [self applyFilter];
     if (selected.count) {
         [self.items enumerateObjectsUsingBlock:^(AMFileItem *item, NSUInteger idx, BOOL *stop) {
@@ -238,18 +274,62 @@ static NSCache<NSString *, UIImage *> *AMThumbCache(void) {
     self.tableView.backgroundView = self.items.count ? nil : [self emptyViewSearching:q.length > 0];
 }
 
+/// Shown at the Files root until a save location has been chosen.
+- (UIView *)setupView {
+    UIView *container = [UIView new];
+    UIImageView *icon = [[UIImageView alloc] initWithImage:[AMUI symbol:@"folder.badge.questionmark" pointSize:52]];
+    icon.tintColor = UIColor.tintColor;
+    UILabel *title = [UILabel new];
+    title.text = L(@"选择保存位置");
+    title.font = [UIFont preferredFontForTextStyle:UIFontTextStyleTitle2];
+    title.adjustsFontForContentSizeCategory = YES;
+    title.textAlignment = NSTextAlignmentCenter;
+    UILabel *body = [UILabel new];
+    body.text = L(@"为节省 iPhone 空间，解压大师不在 App 内保存文件。选择一个文件夹（例如“我的 iPhone”或 iCloud 云盘中的“下载”），解压和压缩的结果会直接存到那里，也可以在这里浏览和管理。");
+    body.font = [UIFont preferredFontForTextStyle:UIFontTextStyleSubheadline];
+    body.adjustsFontForContentSizeCategory = YES;
+    body.textColor = UIColor.secondaryLabelColor;
+    body.textAlignment = NSTextAlignmentCenter;
+    body.numberOfLines = 0;
+    UIButtonConfiguration *cfg = AMUI.prominentButtonConfiguration;
+    cfg.title = L(@"选择文件夹");
+    cfg.image = [UIImage systemImageNamed:@"folder"];
+    cfg.imagePadding = 8;
+    __weak typeof(self) weak = self;
+    UIButton *choose = [UIButton buttonWithConfiguration:cfg primaryAction:[UIAction actionWithHandler:^(__kindof UIAction *a) {
+        typeof(self) strong = weak;
+        if (strong) [AMStorage chooseSaveFolderFrom:strong completion:nil];
+    }]];
+    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[ icon, title, body, choose ]];
+    stack.axis = UILayoutConstraintAxisVertical;
+    stack.spacing = 10;
+    stack.alignment = UIStackViewAlignmentCenter;
+    [stack setCustomSpacing:16 afterView:icon];
+    [stack setCustomSpacing:24 afterView:body];
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    [container addSubview:stack];
+    [NSLayoutConstraint activateConstraints:@[
+        [stack.centerXAnchor constraintEqualToAnchor:container.centerXAnchor],
+        [stack.centerYAnchor constraintEqualToAnchor:container.safeAreaLayoutGuide.centerYAnchor constant:-20],
+        [stack.widthAnchor constraintLessThanOrEqualToAnchor:container.widthAnchor constant:-64],
+        [stack.widthAnchor constraintLessThanOrEqualToConstant:400],
+    ]];
+    return container;
+}
+
 - (UIView *)emptyViewSearching:(BOOL)searching {
+    if (!self.directory) return [self setupView];
     UIView *container = [UIView new];
     UIImageView *icon = [[UIImageView alloc] initWithImage:[AMUI symbol:searching ? @"magnifyingglass" : @"tray" pointSize:48]];
     icon.tintColor = UIColor.tertiaryLabelColor;
     UILabel *title = [UILabel new];
-    title.text = searching ? L(@"无结果") : (self.isRoot ? L(@"还没有文件") : L(@"文件夹是空的"));
+    title.text = searching ? L(@"无结果") : L(@"文件夹是空的");
     title.font = [UIFont preferredFontForTextStyle:UIFontTextStyleTitle2];
     title.adjustsFontForContentSizeCategory = YES;
     title.textAlignment = NSTextAlignmentCenter;
     UILabel *body = [UILabel new];
     body.text = searching ? L(@"请尝试其他关键词。")
-                          : L(@"点击右上角的 ＋ 从“文件”或相册导入，也可以在其他 App 中把压缩包分享到“解压大师”。");
+                          : L(@"点击右上角的 ＋ 打开压缩包、从“文件”或相册导入，也可以在其他 App 中把压缩包分享到“解压大师”。");
     body.font = [UIFont preferredFontForTextStyle:UIFontTextStyleSubheadline];
     body.adjustsFontForContentSizeCategory = YES;
     body.textColor = UIColor.secondaryLabelColor;
@@ -272,6 +352,7 @@ static NSCache<NSString *, UIImage *> *AMThumbCache(void) {
 }
 
 - (void)updateFooter {
+    if (!self.directory) { self.footerLabel.hidden = YES; [AMUI setSubtitle:nil forNavigationItem:self.navigationItem]; return; }
     NSDictionary *v = [self.directory resourceValuesForKeys:@[ NSURLVolumeAvailableCapacityForImportantUsageKey ] error:nil];
     NSNumber *free = v[NSURLVolumeAvailableCapacityForImportantUsageKey];
     NSString *count = [NSString stringWithFormat:L(@"%lu 个项目"), (unsigned long)self.allItems.count];
@@ -283,6 +364,7 @@ static NSCache<NSString *, UIImage *> *AMThumbCache(void) {
 }
 
 - (void)startMonitoring {
+    if (!self.directory) return;
     int fd = open(self.directory.fileSystemRepresentation, O_EVTONLY);
     if (fd < 0) return;
     dispatch_source_t s = dispatch_source_create(DISPATCH_SOURCE_TYPE_VNODE, (uintptr_t)fd,
@@ -403,6 +485,11 @@ static NSCache<NSString *, UIImage *> *AMThumbCache(void) {
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     if (tableView.isEditing) { [self updateToolbar]; return; }
     AMFileItem *item = self.items[(NSUInteger)indexPath.row];
+    if (item.isCloudPlaceholder) {
+        [tableView deselectRowAtIndexPath:indexPath animated:YES];
+        [self downloadFromCloud:item];
+        return;
+    }
     // In the two-column layout the row stays selected to show what the detail column displays.
     if (item.isDirectory || !self.isWide) [tableView deselectRowAtIndexPath:indexPath animated:YES];
     if (item.isDirectory) {
@@ -754,12 +841,12 @@ static NSCache<NSString *, UIImage *> *AMThumbCache(void) {
 
 - (void)compressURLs:(NSArray<NSURL *> *)urls {
     __weak typeof(self) weak = self;
-    [AMActions compressItems:urls suggestedName:nil into:self.directory from:self completion:^(NSURL *result) {
+    [AMActions compressItems:urls suggestedName:nil into:self.directory from:self completion:^(NSArray<NSURL *> *created) {
         typeof(self) strong = weak;
-        if (!result || !strong) return;
-        [AMUI toast:[NSString stringWithFormat:L(@"已创建“%@”"), result.lastPathComponent] symbol:@"checkmark.circle.fill"];
+        if (!created.count || !strong) return;
+        [AMUI toast:[AMActions createdMessageForResults:created settings:nil] symbol:@"checkmark.circle.fill"];
         if (strong.isEditing) [strong setEditing:NO animated:YES];
-        [strong revealItemAtURL:result];
+        [strong revealItemAtURL:created.firstObject];
     }];
 }
 
@@ -870,6 +957,49 @@ static NSCache<NSString *, UIImage *> *AMThumbCache(void) {
         else
             [AMUI showError:error title:L(@"无法创建文件夹") from:strong];
     }];
+}
+
+#pragma mark - Open archives from anywhere
+
+/// Picks archives anywhere in Files (read in place, nothing is copied) and extracts them here.
+/// Picking every part of a split archive extracts it as one.
+- (void)openArchives {
+    if (!self.directory) return;
+    __weak typeof(self) weak = self;
+    [AMStorage pickFilesOfTypes:@[ UTTypeArchive, UTTypeData ] multiple:YES from:self completion:^(NSArray<NSURL *> *urls) {
+        typeof(self) strong = weak;
+        if (!strong || urls.count == 0) return;
+        NSArray<NSArray<NSURL *> *> *groups = [AMArchiver volumeGroupsForURLs:urls];
+        if (groups.count == 1 && groups.firstObject.count == 1) {
+            // One archive: show what's inside first.
+            NSURL *archive = urls.firstObject;
+            AMArchiveContentsViewController *vc = [[AMArchiveContentsViewController alloc] initWithArchive:archive destination:strong.directory];
+            vc.onExtracted = ^(NSURL *result) { [weak revealItemAtURL:result]; };
+            if (strong.isWide) [strong.filesSplit showDetail:vc forURL:archive];
+            else [strong.navigationController pushViewController:vc animated:YES];
+            return;
+        }
+        [AMActions extractGroups:groups into:strong.directory from:strong completion:^(NSArray<NSURL *> *results) {
+            if (results.count) [weak revealItemAtURL:results.lastObject];
+        }];
+    }];
+}
+
+/// Not-yet-downloaded iCloud Drive file: a coordinated read makes the provider download it.
+- (void)downloadFromCloud:(AMFileItem *)item {
+    [AMUI toast:L(@"正在从 iCloud 下载…") symbol:@"icloud.and.arrow.down"];
+    NSURL *url = item.url;
+    __weak typeof(self) weak = self;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        NSError *error = nil;
+        [[NSFileCoordinator new] coordinateReadingItemAtURL:url options:NSFileCoordinatorReadingWithoutChanges error:&error byAccessor:^(NSURL *newURL) {}];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            typeof(self) strong = weak;
+            if (!strong) return;
+            [strong reload];
+            if (error) [AMUI showError:error title:L(@"无法下载") from:strong];
+        });
+    });
 }
 
 #pragma mark - Import

@@ -25,6 +25,10 @@ NSErrorDomain const AMArchiveErrorDomain = @"AMArchiveErrorDomain";
 
 - (BOOL)singleFile { return am_format_is_single_file(self.format) != 0; }
 - (BOOL)supportsPassword { return am_format_supports_password(self.format) != 0; }
+- (BOOL)compresses {
+    am_format f = self.format;
+    return f != AM_FMT_TAR && f != AM_FMT_ISO && f != AM_FMT_CPIO && f != AM_FMT_RAR;
+}
 
 + (NSArray<AMFormatInfo *> *)multiFileFormats {
     static NSArray *list;
@@ -33,6 +37,7 @@ NSErrorDomain const AMArchiveErrorDomain = @"AMArchiveErrorDomain";
         list = @[
             [self f:AM_FMT_ZIP name:@"ZIP" summary:L(@"兼容性最好，所有设备都能打开，可设置密码。")],
             [self f:AM_FMT_7Z name:@"7Z" summary:L(@"压缩率高，适合大文件，需要 7-Zip 等软件打开。")],
+            [self f:AM_FMT_RAR name:@"RAR" summary:L(@"标准 RAR5 格式，所有支持 RAR 的软件都能打开。RAR 的压缩算法为 RARLAB 专有，因此这里只打包、不压缩；需要减小体积请选择 7Z 或 ZIP。")],
             [self f:AM_FMT_TAR_GZ name:@"TAR.GZ" summary:L(@"macOS 和 Linux 常用格式，速度快。")],
             [self f:AM_FMT_TAR_XZ name:@"TAR.XZ" summary:L(@"压缩率很高，但速度较慢。")],
             [self f:AM_FMT_TAR_ZST name:@"TAR.ZST" summary:L(@"Zstandard：速度与压缩率兼顾。")],
@@ -181,18 +186,24 @@ static NSError *AMMakeError(NSInteger code, const char *cmsg) {
 + (BOOL)isArchiveURL:(NSURL *)url {
     NSString *ext = url.pathExtension.lowercaseString;
     if ([self.archiveExtensions containsObject:ext]) return YES;
-    // Split volumes: x.001, x.r00
-    static NSRegularExpression *re;
+    // Split volumes: x.r00, x.z01, x.001, and x.7z.1 (a number after an archive extension).
+    static NSRegularExpression *re, *digits;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        re = [NSRegularExpression regularExpressionWithPattern:@"^(\\d{3}|r\\d{2})$" options:0 error:nil];
+        re = [NSRegularExpression regularExpressionWithPattern:@"^(\\d{3}|r\\d{2}|z\\d{2,})$" options:0 error:nil];
+        digits = [NSRegularExpression regularExpressionWithPattern:@"^\\d+$" options:0 error:nil];
     });
-    return [re firstMatchInString:ext options:0 range:NSMakeRange(0, ext.length)] != nil;
+    if ([re firstMatchInString:ext options:0 range:NSMakeRange(0, ext.length)]) return YES;
+    if ([digits firstMatchInString:ext options:0 range:NSMakeRange(0, ext.length)]) {
+        NSString *inner = url.lastPathComponent.stringByDeletingPathExtension.pathExtension.lowercaseString;
+        return [self.archiveExtensions containsObject:inner];
+    }
+    return NO;
 }
 
 + (NSString *)baseNameForArchive:(NSString *)fileName {
     NSString *name = fileName;
-    NSRegularExpression *split = [NSRegularExpression regularExpressionWithPattern:@"\\.(\\d{3}|r\\d{2})$" options:NSRegularExpressionCaseInsensitive error:nil];
+    NSRegularExpression *split = [NSRegularExpression regularExpressionWithPattern:@"\\.(\\d+|r\\d{2}|z\\d{2,})$" options:NSRegularExpressionCaseInsensitive error:nil];
     name = [split stringByReplacingMatchesInString:name options:0 range:NSMakeRange(0, name.length) withTemplate:@""];
     NSRegularExpression *part = [NSRegularExpression regularExpressionWithPattern:@"\\.part\\d+\\.rar$" options:NSRegularExpressionCaseInsensitive error:nil];
     if ([part firstMatchInString:name options:0 range:NSMakeRange(0, name.length)]) {
@@ -209,7 +220,7 @@ static NSError *AMMakeError(NSInteger code, const char *cmsg) {
 
 + (NSString *)kindForArchive:(NSString *)fileName {
     NSString *lower = fileName.lowercaseString;
-    NSRegularExpression *vol = [NSRegularExpression regularExpressionWithPattern:@"(\\.part\\d+\\.rar|\\.\\d{3}|\\.r\\d{2})$" options:0 error:nil];
+    NSRegularExpression *vol = [NSRegularExpression regularExpressionWithPattern:@"(\\.part\\d+\\.rar|\\.\\d+|\\.r\\d{2}|\\.z\\d{2,})$" options:0 error:nil];
     if ([vol firstMatchInString:lower options:0 range:NSMakeRange(0, lower.length)]) return L(@"分卷压缩包");
     for (NSString *c in @[ @"tar.gz", @"tar.bz2", @"tar.xz", @"tar.zst", @"tar.lz4" ]) {
         if ([lower hasSuffix:[@"." stringByAppendingString:c]]) return [NSString stringWithFormat:L(@"%@ 压缩包"), c.uppercaseString];
@@ -220,63 +231,110 @@ static NSError *AMMakeError(NSInteger code, const char *cmsg) {
     return [NSString stringWithFormat:L(@"%@ 压缩包"), ext.uppercaseString];
 }
 
-/// Ordered list of volumes that make up the archive at `url` (just `url` when it isn't split).
+/// Siblings of `name` in `names` matching `<base><infix><number><suffix>`, sorted by number; nil unless
+/// they form a run starting at 0 or 1 with no gaps and at least `minParts` parts.
+static NSArray<NSString *> *AMNumberedRun(NSArray<NSString *> *names, NSString *base, NSString *infix, NSString *suffix, NSUInteger minParts) {
+    NSString *pattern = [NSString stringWithFormat:@"^%@%@(\\d+)%@$", [NSRegularExpression escapedPatternForString:base],
+                                                   [NSRegularExpression escapedPatternForString:infix],
+                                                   [NSRegularExpression escapedPatternForString:suffix]];
+    NSRegularExpression *re = [NSRegularExpression regularExpressionWithPattern:pattern options:NSRegularExpressionCaseInsensitive error:nil];
+    NSMutableDictionary<NSNumber *, NSString *> *byNumber = [NSMutableDictionary dictionary];
+    for (NSString *n in names) {
+        NSTextCheckingResult *m = [re firstMatchInString:n options:0 range:NSMakeRange(0, n.length)];
+        if (m) byNumber[@([[n substringWithRange:[m rangeAtIndex:1]] integerValue])] = n;
+    }
+    NSInteger first = byNumber[@0] ? 0 : 1;
+    NSMutableArray *run = [NSMutableArray array];
+    for (NSInteger i = first; byNumber[@(i)]; i++) [run addObject:byNumber[@(i)]];
+    return run.count >= minParts ? run : nil;
+}
+
+/// Ordered list of volumes that make up the archive at `url` (just `url` when it isn't split, or
+/// when the folder can't be listed). Handles x.part1.rar, x.rar + x.r00, x.z01 … x.zip, and
+/// numbered pieces such as x.7z.001 or x.7z.1.
 + (NSArray<NSURL *> *)volumesForArchive:(NSURL *)url {
-    NSFileManager *fm = NSFileManager.defaultManager;
     NSURL *dir = url.URLByDeletingLastPathComponent;
     NSString *name = url.lastPathComponent;
+    NSArray<NSString *> *names = [NSFileManager.defaultManager contentsOfDirectoryAtPath:dir.path error:nil];
+    if (names.count < 2) return @[ url ];
     NSRange all = NSMakeRange(0, name.length);
+    NSArray<NSURL *> *(^urls)(NSArray<NSString *> *) = ^NSArray<NSURL *> *(NSArray<NSString *> *list) {
+        NSMutableArray *out = [NSMutableArray array];
+        for (NSString *n in list) [out addObject:[dir URLByAppendingPathComponent:n]];
+        return out;
+    };
 
-    // name.part1.rar, name.part2.rar, ...
-    NSRegularExpression *re = [NSRegularExpression regularExpressionWithPattern:@"^(.*\\.)(part)(\\d+)(\\.rar)$" options:NSRegularExpressionCaseInsensitive error:nil];
+    // x.part1.rar, x.part2.rar, ...
+    NSRegularExpression *re = [NSRegularExpression regularExpressionWithPattern:@"^(.*)\\.part\\d+\\.rar$" options:NSRegularExpressionCaseInsensitive error:nil];
     NSTextCheckingResult *m = [re firstMatchInString:name options:0 range:all];
     if (m) {
-        NSString *base = [name substringWithRange:[m rangeAtIndex:1]];
-        NSString *partWord = [name substringWithRange:[m rangeAtIndex:2]];
-        int width = (int)[m rangeAtIndex:3].length;
-        NSString *ext = [name substringWithRange:[m rangeAtIndex:4]];
-        NSMutableArray *vols = [NSMutableArray array];
-        for (long i = 1; i < 10000; i++) {
-            NSString *n = [NSString stringWithFormat:@"%@%@%0*ld%@", base, partWord, width, i, ext];
-            NSURL *u = [dir URLByAppendingPathComponent:n];
-            if (![fm fileExistsAtPath:u.path]) break;
-            [vols addObject:u];
-        }
-        return vols.count ? vols : @[ url ];
+        NSArray *run = AMNumberedRun(names, [name substringWithRange:[m rangeAtIndex:1]], @".part", @".rar", 2);
+        return run ? urls(run) : @[ url ];
     }
 
-    // name.7z.001, name.7z.002, ...
-    re = [NSRegularExpression regularExpressionWithPattern:@"^(.*)\\.(\\d{3})$" options:0 error:nil];
+    // Spanned ZIP: x.z01, x.z02, ..., x.zip (read in that order).
+    re = [NSRegularExpression regularExpressionWithPattern:@"^(.*)\\.(zip|z\\d{2,})$" options:NSRegularExpressionCaseInsensitive error:nil];
     m = [re firstMatchInString:name options:0 range:all];
     if (m) {
         NSString *base = [name substringWithRange:[m rangeAtIndex:1]];
-        NSMutableArray *vols = [NSMutableArray array];
-        for (long i = 1; i < 1000; i++) {
-            NSURL *u = [dir URLByAppendingPathComponent:[NSString stringWithFormat:@"%@.%03ld", base, i]];
-            if (![fm fileExistsAtPath:u.path]) break;
-            [vols addObject:u];
-        }
-        return vols.count ? vols : @[ url ];
+        NSArray *run = AMNumberedRun(names, base, @".z", @"", 1);
+        NSString *zip = nil;
+        for (NSString *n in names) if ([n caseInsensitiveCompare:[base stringByAppendingString:@".zip"]] == NSOrderedSame) zip = n;
+        if (run.count && zip) return urls([run arrayByAddingObject:zip]);
     }
 
-    // Old-style RAR volumes: name.rar, name.r00, name.r01, ...
+    // Old-style RAR volumes: x.rar, x.r00, x.r01, ...
     re = [NSRegularExpression regularExpressionWithPattern:@"^(.*)\\.(rar|r\\d{2})$" options:NSRegularExpressionCaseInsensitive error:nil];
     m = [re firstMatchInString:name options:0 range:all];
     if (m) {
         NSString *base = [name substringWithRange:[m rangeAtIndex:1]];
-        NSString *ext = [name substringWithRange:[m rangeAtIndex:2]];
-        BOOL upper = [ext isEqualToString:ext.uppercaseString];
-        NSURL *main = [dir URLByAppendingPathComponent:[base stringByAppendingString:upper ? @".RAR" : @".rar"]];
-        if (![fm fileExistsAtPath:main.path]) return @[ url ];
-        NSMutableArray *vols = [NSMutableArray arrayWithObject:main];
-        for (long i = 0; i < 100; i++) {
-            NSURL *u = [dir URLByAppendingPathComponent:[NSString stringWithFormat:upper ? @"%@.R%02ld" : @"%@.r%02ld", base, i]];
-            if (![fm fileExistsAtPath:u.path]) break;
-            [vols addObject:u];
+        NSString *rar = nil;
+        for (NSString *n in names) if ([n caseInsensitiveCompare:[base stringByAppendingString:@".rar"]] == NSOrderedSame) rar = n;
+        NSMutableDictionary<NSNumber *, NSString *> *byNumber = [NSMutableDictionary dictionary];
+        NSRegularExpression *rx = [NSRegularExpression regularExpressionWithPattern:
+            [NSString stringWithFormat:@"^%@\\.r(\\d{2})$", [NSRegularExpression escapedPatternForString:base]] options:NSRegularExpressionCaseInsensitive error:nil];
+        for (NSString *n in names) {
+            NSTextCheckingResult *mm = [rx firstMatchInString:n options:0 range:NSMakeRange(0, n.length)];
+            if (mm) byNumber[@([[n substringWithRange:[mm rangeAtIndex:1]] integerValue])] = n;
         }
-        return vols;
+        if (rar && byNumber[@0]) {
+            NSMutableArray *run = [NSMutableArray arrayWithObject:rar];
+            for (NSInteger i = 0; byNumber[@(i)]; i++) [run addObject:byNumber[@(i)]];
+            return urls(run);
+        }
+        if (!rar) return @[ url ];
+    }
+
+    // Numbered pieces: x.7z.001 / x.7z.1 / x.001 ...
+    re = [NSRegularExpression regularExpressionWithPattern:@"^(.*)\\.(\\d+)$" options:0 error:nil];
+    m = [re firstMatchInString:name options:0 range:all];
+    if (m) {
+        NSArray *run = AMNumberedRun(names, [name substringWithRange:[m rangeAtIndex:1]], @".", @"", 2);
+        if (run) return urls(run);
     }
     return @[ url ];
+}
+
++ (NSArray<NSArray<NSURL *> *> *)volumeGroupsForURLs:(NSArray<NSURL *> *)urls {
+    NSMutableDictionary<NSString *, NSMutableArray<NSURL *> *> *byBase = [NSMutableDictionary dictionary];
+    NSMutableArray<NSString *> *order = [NSMutableArray array];
+    for (NSURL *u in urls) {
+        NSString *key = [self baseNameForArchive:u.lastPathComponent].lowercaseString;
+        if (!byBase[key]) { byBase[key] = [NSMutableArray array]; [order addObject:key]; }
+        [byBase[key] addObject:u];
+    }
+    NSMutableArray *groups = [NSMutableArray array];
+    for (NSString *key in order) {
+        NSMutableArray<NSURL *> *g = byBase[key];
+        [g sortUsingComparator:^NSComparisonResult(NSURL *a, NSURL *b) {
+            // Old-style RAR sets start with x.rar, then x.r00, x.r01...; spanned ZIPs end with x.zip.
+            NSString *ea = a.pathExtension.lowercaseString, *eb = b.pathExtension.lowercaseString;
+            if ([ea isEqualToString:@"rar"] != [eb isEqualToString:@"rar"]) return [ea isEqualToString:@"rar"] ? NSOrderedAscending : NSOrderedDescending;
+            return [a.lastPathComponent localizedStandardCompare:b.lastPathComponent];
+        }];
+        [groups addObject:g];
+    }
+    return groups;
 }
 
 /// Runs the C extractor over all volumes. Must be called on a background queue.
@@ -317,10 +375,11 @@ static NSError *AMMakeError(NSInteger code, const char *cmsg) {
     BOOL smart = options.smart, deleteAfter = options.deleteArchive && options.onlyPaths.count == 0;
     NSArray<NSString *> *passwords = [options.passwords copy] ?: @[];
     NSSet<NSString *> *onlyPaths = [options.onlyPaths copy];
+    NSArray<NSURL *> *explicitVolumes = [options.volumes copy];
 
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         NSFileManager *fm = NSFileManager.defaultManager;
-        NSArray<NSURL *> *volumes = [self volumesForArchive:archive];
+        NSArray<NSURL *> *volumes = explicitVolumes.count ? explicitVolumes : [self volumesForArchive:archive];
         NSURL *tmp = [directory URLByAppendingPathComponent:[@".extracting-" stringByAppendingString:NSUUID.UUID.UUIDString] isDirectory:YES];
         NSError *error = nil;
         NSURL *result = nil;
@@ -431,6 +490,139 @@ static NSError *AMMakeError(NSInteger code, const char *cmsg) {
         }
         [fm removeItemAtURL:tmp error:nil];
         dispatch_async(dispatch_get_main_queue(), ^{ completion(result, result ? nil : error); });
+    });
+    return task;
+}
+
+#pragma mark - Several archives
+
+/// Runs am_create into `output` (a temporary name). Must be called on a background queue.
++ (int)createAt:(NSURL *)output
+          items:(NSArray<NSURL *> *)items
+           opts:(am_write_opts)wo
+          relay:(AMProgressRelay *)relay
+            err:(char *)err
+         errlen:(size_t)errlen {
+    const char **paths = calloc(items.count, sizeof *paths);
+    for (NSUInteger i = 0; i < items.count; i++) paths[i] = items[i].fileSystemRepresentation;
+    int rc = am_create(output.fileSystemRepresentation, paths, (int)items.count, &wo, AMRelayProgress, (__bridge void *)relay, err, errlen);
+    free(paths);
+    return rc;
+}
+
+static AMProgressBlock AMScaled(AMProgressBlock block, double base, double span) {
+    if (!block) return nil;
+    return ^(double f, NSString *item) { block(base + f * span, item); };
+}
+
++ (AMArchiveTask *)createArchivesNamed:(NSString *)name
+                           inDirectory:(NSURL *)directory
+                             fromItems:(NSArray<NSURL *> *)items
+                                format:(am_format)format
+                                 level:(NSInteger)level
+                              password:(NSString *)password
+                            encryption:(am_encryption)encryption
+                                output:(AMOutputMode)output
+                                 count:(NSInteger)count
+                              progress:(AMProgressBlock)progress
+                            completion:(void (^)(NSArray<NSURL *> *, NSError *))completion {
+    if (output == AMOutputSingle || count < 2) {
+        return [self createArchiveNamed:name inDirectory:directory fromItems:items format:format level:level password:password
+                             encryption:encryption progress:progress completion:^(NSURL *result, NSError *error) {
+            completion(result ? @[ result ] : @[], error);
+        }];
+    }
+    AMArchiveTask *task = [AMArchiveTask new];
+    NSString *pw = [password copy];
+    NSArray<NSURL *> *inputs = [items copy];
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        NSFileManager *fm = NSFileManager.defaultManager;
+        NSString *ext = @(am_format_extension(format));
+        am_write_opts wo = { .format = format, .level = (int)level,
+                             .password = pw.length ? pw.UTF8String : NULL,
+                             .encryption = pw.length ? encryption : AM_ENC_NONE };
+        NSMutableArray<NSURL *> *results = [NSMutableArray array];
+        NSError *error = nil;
+        char err[1024] = "";
+        AMProgressRelay *relay = [AMProgressRelay new];
+        relay.task = task;
+
+        if (output == AMOutputVolumes) {
+            // Build the whole archive, then cut it into `count` pieces from the end.
+            NSURL *tmp = [directory URLByAppendingPathComponent:[NSString stringWithFormat:@".creating-%@.%@", NSUUID.UUID.UUIDString, ext]];
+            relay.block = AMScaled(progress, 0, 0.9);
+            int rc = [self createAt:tmp items:inputs opts:wo relay:relay err:err errlen:sizeof err];
+            if (rc == AM_OK) {
+                NSString *base = name;
+                for (NSInteger k = 2; [fm fileExistsAtPath:[directory URLByAppendingPathComponent:[NSString stringWithFormat:@"%@.%@.001", base, ext]].path]; k++)
+                    base = [NSString stringWithFormat:@"%@ %ld", name, (long)k];
+                NSMutableArray<NSURL *> *parts = [NSMutableArray array];
+                const char **outs = calloc((size_t)count, sizeof *outs);
+                for (NSInteger i = 0; i < count; i++) {
+                    NSURL *u = [directory URLByAppendingPathComponent:[NSString stringWithFormat:@"%@.%@.%03ld", base, ext, (long)i + 1]];
+                    [parts addObject:u];
+                    outs[i] = u.fileSystemRepresentation;
+                }
+                relay.block = AMScaled(progress, 0.9, 0.1);
+                rc = am_split_file(tmp.fileSystemRepresentation, (int)count, outs, AMRelayProgress, (__bridge void *)relay, err, sizeof err);
+                free(outs);
+                if (rc == AM_OK)
+                    for (NSURL *u in parts) if ([fm fileExistsAtPath:u.path]) [results addObject:u];
+            }
+            if (rc != AM_OK) error = AMMakeError(rc, err);
+            [fm removeItemAtURL:tmp error:nil];
+        } else {
+            // Units to distribute: the selected items, or a single folder's contents (kept under its name).
+            NSArray<NSURL *> *units = inputs;
+            NSString *prefix = nil;
+            NSNumber *isDir = nil;
+            [inputs.firstObject getResourceValue:&isDir forKey:NSURLIsDirectoryKey error:nil];
+            if (inputs.count == 1 && isDir.boolValue) {
+                units = [fm contentsOfDirectoryAtURL:inputs.firstObject includingPropertiesForKeys:nil options:NSDirectoryEnumerationSkipsHiddenFiles error:nil] ?: @[];
+                prefix = inputs.firstObject.lastPathComponent;
+            }
+            NSInteger n = MIN(count, (NSInteger)units.count);
+            if (n < 1) {
+                error = AMMakeError(AMArchiveErrorEmpty, NULL);
+            } else {
+                // Largest first into the lightest archive keeps the sizes close.
+                NSMutableArray *sized = [NSMutableArray array];
+                for (NSURL *u in units) [sized addObject:@[ u, @([AMUI sizeOfItemAtURL:u]) ]];
+                [sized sortUsingComparator:^NSComparisonResult(NSArray *a, NSArray *b) { return [b[1] compare:a[1]]; }];
+                NSMutableArray<NSMutableArray<NSURL *> *> *bins = [NSMutableArray array];
+                NSMutableArray<NSNumber *> *weights = [NSMutableArray array];
+                for (NSInteger i = 0; i < n; i++) { [bins addObject:[NSMutableArray array]]; [weights addObject:@0]; }
+                unsigned long long total = 0;
+                for (NSArray *pair in sized) {
+                    NSUInteger best = 0;
+                    for (NSUInteger i = 1; i < bins.count; i++) if (weights[i].unsignedLongLongValue < weights[best].unsignedLongLongValue) best = i;
+                    [bins[best] addObject:pair[0]];
+                    weights[best] = @(weights[best].unsignedLongLongValue + [pair[1] unsignedLongLongValue]);
+                    total += [pair[1] unsignedLongLongValue];
+                }
+                double base = 0;
+                wo.prefix = prefix.length ? prefix.UTF8String : NULL;
+                for (NSInteger i = 0; i < n && !error; i++) {
+                    double span = total ? (double)weights[i].unsignedLongLongValue / (double)total : 1.0 / n;
+                    relay.block = AMScaled(progress, base, span);
+                    base += span;
+                    NSURL *tmp = [directory URLByAppendingPathComponent:[NSString stringWithFormat:@".creating-%@.%@", NSUUID.UUID.UUIDString, ext]];
+                    int rc = [self createAt:tmp items:bins[i] opts:wo relay:relay err:err errlen:sizeof err];
+                    if (rc == AM_OK) {
+                        NSURL *dest = [AMUI uniqueURLForName:[NSString stringWithFormat:@"%@-%ld.%@", name, (long)i + 1, ext] inDirectory:directory];
+                        if ([fm moveItemAtURL:tmp toURL:dest error:&error]) [results addObject:dest];
+                    } else {
+                        error = AMMakeError(rc, err);
+                    }
+                    [fm removeItemAtURL:tmp error:nil];
+                }
+            }
+        }
+        if (error) {
+            for (NSURL *u in results) [fm removeItemAtURL:u error:nil];
+            [results removeAllObjects];
+        }
+        dispatch_async(dispatch_get_main_queue(), ^{ completion(results, results.count ? nil : error); });
     });
     return task;
 }

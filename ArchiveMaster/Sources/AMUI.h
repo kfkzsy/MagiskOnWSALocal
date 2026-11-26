@@ -101,6 +101,12 @@ extern NSNotificationName const AMCompressMediaNotification;
                                   format:(NSString *(^)(float value))format
                                  handler:(void (^)(float value))handler
                                outSlider:(UISlider *_Nullable *_Nullable)outSlider;
++ (UITableViewCell *)stepperCellWithTitle:(NSString *)title
+                                    value:(NSInteger)value
+                                      min:(NSInteger)min
+                                      max:(NSInteger)max
+                                   format:(NSString *(^)(NSInteger value))format
+                                  handler:(void (^)(NSInteger value))handler;
 /// Row with a title and a button that opens `menu` (the button title doesn't change).
 + (UITableViewCell *)menuCellWithTitle:(NSString *)title buttonTitle:(NSString *)buttonTitle menu:(UIMenu *)menu;
 /// Tappable row styled like a button (tinted text, optional symbol).

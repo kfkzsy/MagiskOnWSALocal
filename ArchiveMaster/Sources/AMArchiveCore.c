@@ -14,6 +14,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <zlib.h>
 
 #define AM_BUF_SIZE (256 * 1024)
 
@@ -424,6 +425,7 @@ const char *am_format_extension(am_format f) {
     case AM_FMT_XZ: return "xz";
     case AM_FMT_ZST: return "zst";
     case AM_FMT_LZ4: return "lz4";
+    case AM_FMT_RAR: return "rar";
     default: return "bin";
     }
 }
@@ -606,9 +608,257 @@ static int write_one(writer_state *w, const char *path, const char *rel, const s
     return rc;
 }
 
+/* ------------------------------------------------------------------ RAR5 (store) */
+
+typedef struct { uint8_t *p; size_t len, cap; } am_bytes;
+
+static int bytes_put(am_bytes *b, const void *d, size_t n) {
+    if (b->len + n > b->cap) {
+        size_t cap = b->cap ? b->cap * 2 : 256;
+        while (cap < b->len + n) cap *= 2;
+        uint8_t *q = realloc(b->p, cap);
+        if (!q) return -1;
+        b->p = q;
+        b->cap = cap;
+    }
+    memcpy(b->p + b->len, d, n);
+    b->len += n;
+    return 0;
+}
+
+static size_t vint_encode(uint8_t *out, uint64_t v) {
+    size_t n = 0;
+    do {
+        uint8_t byte = v & 0x7f;
+        v >>= 7;
+        if (v) byte |= 0x80;
+        out[n++] = byte;
+    } while (v);
+    return n;
+}
+
+static int bytes_vint(am_bytes *b, uint64_t v) {
+    uint8_t t[10];
+    return bytes_put(b, t, vint_encode(t, v));
+}
+
+static int bytes_u32(am_bytes *b, uint32_t v) {
+    uint8_t t[4] = { (uint8_t)v, (uint8_t)(v >> 8), (uint8_t)(v >> 16), (uint8_t)(v >> 24) };
+    return bytes_put(b, t, 4);
+}
+
+static int write_all(int fd, const void *buf, size_t n) {
+    const uint8_t *p = buf;
+    while (n) {
+        ssize_t w = write(fd, p, n);
+        if (w < 0) { if (errno == EINTR) continue; return -1; }
+        p += w;
+        n -= (size_t)w;
+    }
+    return 0;
+}
+
+/* A RAR5 block is: CRC32 | header size (vint) | body. The CRC covers the size field and the body.
+ * Returns the full header bytes in `out` (caller frees). */
+static int rar5_block(const am_bytes *body, am_bytes *out) {
+    uint8_t sz[10];
+    size_t szn = vint_encode(sz, body->len);
+    uLong crc = crc32(0L, Z_NULL, 0);
+    crc = crc32(crc, sz, (uInt)szn);
+    crc = crc32(crc, body->p, (uInt)body->len);
+    out->len = 0;
+    if (bytes_u32(out, (uint32_t)crc) || bytes_put(out, sz, szn) || bytes_put(out, body->p, body->len)) return -1;
+    return 0;
+}
+
+static int rar5_write_block(int fd, const am_bytes *body) {
+    am_bytes hdr = { 0 };
+    int r = rar5_block(body, &hdr) || write_all(fd, hdr.p, hdr.len) ? -1 : 0;
+    free(hdr.p);
+    return r;
+}
+
+typedef struct {
+    int fd;
+    am_progress_cb cb;
+    void *ctx;
+    int64_t done, total;
+    char *buf;
+} rar5_state;
+
+static int rar5_add(rar5_state *w, const char *path, const char *rel, const struct stat *st, char *err, size_t errlen) {
+    int is_dir = S_ISDIR(st->st_mode);
+    if (!is_dir && !S_ISREG(st->st_mode)) return AM_OK; /* links and special files are skipped */
+    if (w->cb && w->cb(w->ctx, w->done, w->total, rel)) return AM_CANCELLED;
+
+    uint64_t size = is_dir ? 0 : (uint64_t)st->st_size;
+    uint32_t mode = is_dir ? (S_IFDIR | 0755) : (S_IFREG | ((st->st_mode & 0111) ? 0755 : 0644));
+    size_t namelen = strlen(rel);
+    am_bytes body = { 0 };
+    size_t crc_off = 0;
+    int bad = bytes_vint(&body, 2);                              /* header type: file */
+    bad |= bytes_vint(&body, 0x0002);                            /* header flags: data area present (0 bytes for folders, as WinRAR writes) */
+    bad |= bytes_vint(&body, size);                              /* data size (packed = unpacked, stored) */
+    bad |= bytes_vint(&body, (is_dir ? 0x0001 : 0x0004) | 0x0002); /* file flags: dir or CRC32, + mtime */
+    bad |= bytes_vint(&body, size);                              /* unpacked size */
+    bad |= bytes_vint(&body, mode);                              /* attributes (Unix st_mode) */
+    bad |= bytes_u32(&body, (uint32_t)st->st_mtime);             /* mtime */
+    if (!is_dir) { crc_off = body.len; bad |= bytes_u32(&body, 0); } /* data CRC32, patched later */
+    bad |= bytes_vint(&body, 0);                                 /* compression info: v0, method 0 (store) */
+    bad |= bytes_vint(&body, 1);                                 /* host OS: Unix */
+    bad |= bytes_vint(&body, namelen);
+    bad |= bytes_put(&body, rel, namelen);
+    if (bad) { free(body.p); set_err(err, errlen, "out of memory"); return AM_ERR; }
+
+    off_t at = lseek(w->fd, 0, SEEK_CUR);
+    am_bytes hdr = { 0 };
+    int rc = AM_OK;
+    if (rar5_block(&body, &hdr) || write_all(w->fd, hdr.p, hdr.len)) {
+        set_err(err, errlen, "%s", strerror(errno));
+        rc = AM_ERR;
+    }
+    if (rc == AM_OK && !is_dir) {
+        int in = open(path, O_RDONLY);
+        if (in < 0) { set_err(err, errlen, "%s: %s", rel, strerror(errno)); rc = AM_ERR; }
+        uLong crc = crc32(0L, Z_NULL, 0);
+        uint64_t copied = 0;
+        while (rc == AM_OK && in >= 0) {
+            ssize_t n = read(in, w->buf, AM_BUF_SIZE);
+            if (n == 0) break;
+            if (n < 0) { if (errno == EINTR) continue; set_err(err, errlen, "%s: %s", rel, strerror(errno)); rc = AM_ERR; break; }
+            crc = crc32(crc, (const Bytef *)w->buf, (uInt)n);
+            if (write_all(w->fd, w->buf, (size_t)n)) { set_err(err, errlen, "%s", strerror(errno)); rc = AM_ERR; break; }
+            copied += (uint64_t)n;
+            w->done += n;
+            if (w->cb && w->cb(w->ctx, w->done, w->total, NULL)) rc = AM_CANCELLED;
+        }
+        if (in >= 0) close(in);
+        if (rc == AM_OK && copied != size) { set_err(err, errlen, "%s changed while it was being read", rel); rc = AM_ERR; }
+        if (rc == AM_OK) {
+            /* Patch the data CRC into the header and rewrite it in place (same length). */
+            body.p[crc_off] = (uint8_t)crc;
+            body.p[crc_off + 1] = (uint8_t)(crc >> 8);
+            body.p[crc_off + 2] = (uint8_t)(crc >> 16);
+            body.p[crc_off + 3] = (uint8_t)(crc >> 24);
+            if (rar5_block(&body, &hdr) || pwrite(w->fd, hdr.p, hdr.len, at) != (ssize_t)hdr.len) {
+                set_err(err, errlen, "%s", strerror(errno));
+                rc = AM_ERR;
+            }
+        }
+    }
+    free(hdr.p);
+    free(body.p);
+    return rc;
+}
+
+static int rar5_create(const char *output, const char *const *inputs, int count, const am_write_opts *opts,
+                       am_progress_cb cb, void *ctx, char *err, size_t errlen) {
+    rar5_state w = { .cb = cb, .ctx = ctx };
+    for (int i = 0; i < count; i++) w.total += tree_size(inputs[i]);
+    w.fd = open(output, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    w.buf = malloc(AM_BUF_SIZE);
+    if (w.fd < 0 || !w.buf) {
+        set_err(err, errlen, "%s", strerror(errno));
+        if (w.fd >= 0) close(w.fd);
+        free(w.buf);
+        return AM_ERR;
+    }
+    static const uint8_t sig[8] = { 0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x01, 0x00 };
+    int rc = write_all(w.fd, sig, sizeof sig) ? AM_ERR : AM_OK;
+    am_bytes main_hdr = { 0 };
+    if (rc == AM_OK && (bytes_vint(&main_hdr, 1) || bytes_vint(&main_hdr, 0) || bytes_vint(&main_hdr, 0) ||
+                        rar5_write_block(w.fd, &main_hdr)))
+        rc = AM_ERR;
+    free(main_hdr.p);
+    if (rc != AM_OK) set_err(err, errlen, "%s", strerror(errno));
+
+    for (int i = 0; rc == AM_OK && i < count; i++) {
+        char *in = strdup(inputs[i]);
+        size_t l = strlen(in);
+        while (l > 1 && in[l - 1] == '/') in[--l] = '\0';
+        size_t cut = (size_t)(base_name(in) - in);
+        char *paths[2] = { in, NULL };
+        FTS *fts = fts_open(paths, FTS_PHYSICAL | FTS_NOCHDIR, NULL);
+        if (!fts) { set_err(err, errlen, "%s: %s", in, strerror(errno)); rc = AM_ERR; free(in); break; }
+        FTSENT *n;
+        while (rc == AM_OK && (n = fts_read(fts))) {
+            if (n->fts_info == FTS_D || n->fts_info == FTS_F) {
+                char *rel = opts->prefix && *opts->prefix ? path_join(opts->prefix, n->fts_path + cut) : strdup(n->fts_path + cut);
+                rc = rel ? rar5_add(&w, n->fts_path, rel, n->fts_statp, err, errlen) : AM_ERR;
+                free(rel);
+            } else if (n->fts_info == FTS_DNR || n->fts_info == FTS_ERR || n->fts_info == FTS_NS) {
+                set_err(err, errlen, "%s: %s", n->fts_path, strerror(n->fts_errno));
+                rc = AM_ERR;
+            }
+        }
+        fts_close(fts);
+        free(in);
+    }
+    if (rc == AM_OK) {
+        am_bytes end = { 0 };
+        if (bytes_vint(&end, 5) || bytes_vint(&end, 0x0004) || bytes_vint(&end, 0) || rar5_write_block(w.fd, &end)) {
+            set_err(err, errlen, "%s", strerror(errno));
+            rc = AM_ERR;
+        }
+        free(end.p);
+    }
+    if (close(w.fd) != 0 && rc == AM_OK) { set_err(err, errlen, "%s", strerror(errno)); rc = AM_ERR; }
+    free(w.buf);
+    if (rc == AM_OK && cb) cb(ctx, w.total, w.total, NULL);
+    if (rc != AM_OK) unlink(output);
+    return rc;
+}
+
+/* ------------------------------------------------------------------ split */
+
+int am_split_file(const char *path, int parts, const char *const *outputs, am_progress_cb cb, void *ctx,
+                  char *err, size_t errlen) {
+    struct stat st;
+    if (parts < 1 || stat(path, &st) != 0) { set_err(err, errlen, "%s", strerror(errno)); return AM_ERR; }
+    int64_t size = st.st_size;
+    if (parts > size) parts = (int)(size > 0 ? size : 1);
+    int64_t chunk = (size + parts - 1) / parts;
+    int fd = open(path, O_RDWR);
+    char *buf = malloc(AM_BUF_SIZE);
+    if (fd < 0 || !buf) { set_err(err, errlen, "%s", strerror(errno)); if (fd >= 0) close(fd); free(buf); return AM_ERR; }
+    int rc = AM_OK;
+    int64_t moved = 0;
+    /* Last piece first: copy the tail into its own file, then cut it off the source. */
+    for (int i = parts - 1; rc == AM_OK && i >= 1; i--) {
+        int64_t from = chunk * i;
+        if (from >= size) continue;
+        int out = open(outputs[i], O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (out < 0) { set_err(err, errlen, "%s", strerror(errno)); rc = AM_ERR; break; }
+        int64_t pos = from, end = size;
+        while (rc == AM_OK && pos < end) {
+            size_t want = (size_t)((end - pos) < AM_BUF_SIZE ? (end - pos) : AM_BUF_SIZE);
+            ssize_t n = pread(fd, buf, want, pos);
+            if (n <= 0) { if (n < 0 && errno == EINTR) continue; set_err(err, errlen, "%s", strerror(errno)); rc = AM_ERR; break; }
+            if (write_all(out, buf, (size_t)n)) { set_err(err, errlen, "%s", strerror(errno)); rc = AM_ERR; break; }
+            pos += n;
+            moved += n;
+            if (cb && cb(ctx, moved, size, NULL)) rc = AM_CANCELLED;
+        }
+        if (close(out) != 0 && rc == AM_OK) { set_err(err, errlen, "%s", strerror(errno)); rc = AM_ERR; }
+        if (rc == AM_OK && ftruncate(fd, from) != 0) { set_err(err, errlen, "%s", strerror(errno)); rc = AM_ERR; }
+        size = from;
+    }
+    close(fd);
+    free(buf);
+    if (rc == AM_OK && rename(path, outputs[0]) != 0) { set_err(err, errlen, "%s", strerror(errno)); rc = AM_ERR; }
+    if (rc != AM_OK) {
+        for (int i = 0; i < parts; i++) unlink(outputs[i]);
+        unlink(path);
+    } else if (cb) {
+        cb(ctx, st.st_size, st.st_size, NULL);
+    }
+    return rc;
+}
+
 int am_create(const char *output, const char *const *inputs, int count, const am_write_opts *opts,
               am_progress_cb cb, void *ctx, char *err, size_t errlen) {
     if (count <= 0) { set_err(err, errlen, "nothing to compress"); return AM_ERR; }
+    if (opts->format == AM_FMT_RAR) return rar5_create(output, inputs, count, opts, cb, ctx, err, errlen);
     if (am_format_is_single_file(opts->format)) {
         struct stat st;
         if (count != 1 || stat(inputs[0], &st) != 0 || !S_ISREG(st.st_mode)) {
@@ -642,9 +892,13 @@ int am_create(const char *output, const char *const *inputs, int count, const am
         FTSENT *n;
         while (rc == AM_OK && (n = fts_read(fts))) {
             switch (n->fts_info) {
-            case FTS_D: case FTS_F: case FTS_SL: case FTS_SLNONE:
-                rc = write_one(&w, n->fts_path, n->fts_path + prefix, n->fts_statp, err, errlen);
+            case FTS_D: case FTS_F: case FTS_SL: case FTS_SLNONE: {
+                char *rel = opts->prefix && *opts->prefix ? path_join(opts->prefix, n->fts_path + prefix)
+                                                          : strdup(n->fts_path + prefix);
+                rc = rel ? write_one(&w, n->fts_path, rel, n->fts_statp, err, errlen) : AM_ERR;
+                free(rel);
                 break;
+            }
             case FTS_DNR: case FTS_ERR: case FTS_NS:
                 set_err(err, errlen, "%s: %s", n->fts_path, strerror(n->fts_errno));
                 rc = AM_ERR;

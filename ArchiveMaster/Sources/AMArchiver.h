@@ -21,6 +21,7 @@ typedef NS_ENUM(NSInteger, AMArchiveErrorCode) {
 @property (nonatomic, readonly, copy) NSString *summary;    // one-line description
 @property (nonatomic, readonly) BOOL singleFile;
 @property (nonatomic, readonly) BOOL supportsPassword;
+@property (nonatomic, readonly) BOOL compresses;  // NO for formats that only pack (TAR, ISO, CPIO, RAR)
 + (NSArray<AMFormatInfo *> *)multiFileFormats;
 + (NSArray<AMFormatInfo *> *)singleFileFormats;
 + (AMFormatInfo *)infoForFormat:(am_format)format;
@@ -40,6 +41,8 @@ typedef NS_ENUM(NSInteger, AMArchiveErrorCode) {
 @property (nonatomic, copy, nullable) NSSet<NSString *> *onlyPaths;
 @property (nonatomic) BOOL smart;
 @property (nonatomic) BOOL deleteArchive;
+/// Explicit volume list (e.g. parts picked in the Files picker, whose folder can't be listed).
+@property (nonatomic, copy, nullable) NSArray<NSURL *> *volumes;
 + (instancetype)fromSettings;
 @end
 
@@ -49,6 +52,13 @@ typedef NS_ENUM(NSInteger, AMArchiveErrorCode) {
 @end
 
 typedef void (^AMProgressBlock)(double fraction, NSString *_Nullable currentItem);
+
+/// How many archives a compression produces.
+typedef NS_ENUM(NSInteger, AMOutputMode) {
+    AMOutputSingle = 0,   // one archive
+    AMOutputVolumes,      // one archive split into N pieces: name.zip.001, name.zip.002, ...
+    AMOutputSeparate,     // items spread over N independent archives: name-1.zip, name-2.zip, ...
+};
 
 @interface AMArchiver : NSObject
 
@@ -61,6 +71,8 @@ typedef void (^AMProgressBlock)(double fraction, NSString *_Nullable currentItem
 
 /// Ordered list of volumes that make up the archive (just `url` when it isn't split).
 + (NSArray<NSURL *> *)volumesForArchive:(NSURL *)url;
+/// Groups picked files into archives: parts of the same split archive end up together, in order.
++ (NSArray<NSArray<NSURL *> *> *)volumeGroupsForURLs:(NSArray<NSURL *> *)urls;
 
 /// Extracts into `directory`. With "smart extract" on, a single top-level item lands directly in
 /// `directory`; otherwise everything goes into a new folder named after the archive. When exactly one
@@ -89,6 +101,19 @@ typedef void (^AMProgressBlock)(double fraction, NSString *_Nullable currentItem
                            encryption:(am_encryption)encryption
                              progress:(nullable AMProgressBlock)progress
                            completion:(void (^)(NSURL *_Nullable result, NSError *_Nullable error))completion;
+
+/// Like the above, but can produce several archives (see AMOutputMode). Completion gets every file created.
++ (AMArchiveTask *)createArchivesNamed:(NSString *)name
+                           inDirectory:(NSURL *)directory
+                             fromItems:(NSArray<NSURL *> *)items
+                                format:(am_format)format
+                                 level:(NSInteger)level
+                              password:(nullable NSString *)password
+                            encryption:(am_encryption)encryption
+                                output:(AMOutputMode)output
+                                 count:(NSInteger)count
+                              progress:(nullable AMProgressBlock)progress
+                            completion:(void (^)(NSArray<NSURL *> *results, NSError *_Nullable error))completion;
 
 /// Lists entries (capped at 20,000). Completion runs on the main queue.
 + (void)listArchive:(NSURL *)archive

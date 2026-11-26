@@ -1,5 +1,6 @@
 #import <UIKit/UIKit.h>
 #import "AMArchiveCore.h"
+#import "AMArchiver.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -9,6 +10,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic) NSInteger level;
 @property (nonatomic, copy, nullable) NSString *password;
 @property (nonatomic) am_encryption encryption;
+@property (nonatomic) AMOutputMode output;
+@property (nonatomic) NSInteger count;  // archives/volumes when output != AMOutputSingle
 @end
 
 /// Form sheet for choosing the archive name, format, level and password.

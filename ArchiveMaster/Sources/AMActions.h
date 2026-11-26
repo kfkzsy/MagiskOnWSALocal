@@ -29,22 +29,31 @@ NS_ASSUME_NONNULL_BEGIN
                    from:(UIViewController *)vc
              completion:(nullable void (^)(NSArray<NSURL *> *results))completion;
 
+/// Extracts groups of picked files (each group = one archive, possibly split into parts), one after another.
++ (void)extractGroups:(NSArray<NSArray<NSURL *> *> *)groups
+                 into:(NSURL *)directory
+                 from:(UIViewController *)vc
+           completion:(nullable void (^)(NSArray<NSURL *> *results))completion;
+
 /// Extracts one entry to a temporary folder and shows it with QuickLook.
 + (void)previewEntry:(NSString *)path inArchive:(NSURL *)archive from:(UIViewController *)vc;
 
-/// Shows the options sheet, then compresses.
+/// Shows the options sheet, then compresses. Completion gets every archive/volume created (empty on failure or cancel).
 + (void)compressItems:(NSArray<NSURL *> *)items
         suggestedName:(nullable NSString *)name
                  into:(NSURL *)directory
                  from:(UIViewController *)vc
-           completion:(nullable void (^)(NSURL *_Nullable result))completion;
+           completion:(nullable void (^)(NSArray<NSURL *> *results))completion;
 
 /// Compresses with the given settings (no sheet).
 + (void)compressItems:(NSArray<NSURL *> *)items
              settings:(AMCompressSettings *)settings
                  into:(NSURL *)directory
                  from:(UIViewController *)vc
-           completion:(nullable void (^)(NSURL *_Nullable result))completion;
+           completion:(nullable void (^)(NSArray<NSURL *> *results))completion;
+
+/// "已创建“x”" / "已创建 3 个分卷" style summary for a compression result.
++ (NSString *)createdMessageForResults:(NSArray<NSURL *> *)results settings:(nullable AMCompressSettings *)settings;
 
 /// Copies picked photos/videos (original files) into `directory`, with a progress card.
 + (void)importPickerResults:(NSArray<PHPickerResult *> *)results

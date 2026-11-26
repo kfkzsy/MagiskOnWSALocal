@@ -28,6 +28,8 @@ typedef NS_ENUM(NSInteger, AMFileKind) {
 @property (nonatomic, readonly, nullable) NSDate *modified;
 @property (nonatomic, readonly) NSInteger childCount;  // folders only
 @property (nonatomic, readonly) AMFileKind kind;
+/// An iCloud Drive file that isn't downloaded yet (shown as ".name.icloud" on disk). `url` is the real name.
+@property (nonatomic, readonly) BOOL isCloudPlaceholder;
 
 + (NSArray<AMFileItem *> *)itemsInDirectory:(NSURL *)directory sort:(AMSortMode)sort;
 + (AMFileKind)kindForFileName:(NSString *)name;

@@ -1,6 +1,7 @@
 #import "AMSettingsViewController.h"
 #import "AMArchiver.h"
 #import "AMPasswordBook.h"
+#import "AMStorage.h"
 #import "AMUI.h"
 #import <archive.h>
 
@@ -12,7 +13,7 @@ static const NSInteger kLevelValues[] = { 0, 1, 6, 9 };
 
 @interface AMSettingsViewController ()
 @property (nonatomic, strong) UITableViewCell *formatCell, *levelCell, *smartCell, *deleteCell, *encodingCell;
-@property (nonatomic, strong) UITableViewCell *usageCell, *cacheCell, *formatsCell, *licensesCell, *versionCell, *passwordsCell, *languageCell;
+@property (nonatomic, strong) UITableViewCell *usageCell, *cacheCell, *formatsCell, *licensesCell, *versionCell, *passwordsCell, *languageCell, *saveFolderCell;
 @end
 
 @implementation AMSettingsViewController
@@ -65,7 +66,8 @@ static const NSInteger kLevelValues[] = { 0, 1, 6, 9 };
     NSString *langName = [[NSLocale localeWithLocaleIdentifier:lang] localizedStringForLanguageCode:lang] ?: lang;
     if ([lang hasPrefix:@"zh"]) langName = L(@"简体中文");
     self.languageCell = [AMForm valueCellWithTitle:L(@"语言") detail:langName symbol:@"globe" tint:UIColor.systemBlueColor accessory:UITableViewCellAccessoryDisclosureIndicator];
-    self.usageCell = [AMForm valueCellWithTitle:L(@"文件占用") detail:L(@"…") symbol:@"internaldrive" tint:UIColor.systemGrayColor accessory:UITableViewCellAccessoryNone];
+    self.saveFolderCell = [AMForm valueCellWithTitle:L(@"保存位置") detail:AMStorage.saveFolderName symbol:@"folder.fill" tint:UIColor.systemBlueColor accessory:UITableViewCellAccessoryDisclosureIndicator];
+    self.usageCell = [AMForm valueCellWithTitle:L(@"App 占用空间") detail:L(@"…") symbol:@"internaldrive" tint:UIColor.systemGrayColor accessory:UITableViewCellAccessoryNone];
     self.usageCell.selectionStyle = UITableViewCellSelectionStyleNone;
     self.cacheCell = [AMForm valueCellWithTitle:L(@"清除缓存") detail:L(@"…") symbol:@"trash" tint:UIColor.systemRedColor accessory:UITableViewCellAccessoryNone];
     self.formatsCell = [AMForm valueCellWithTitle:L(@"支持的格式") detail:nil symbol:@"doc.zipper" tint:UIColor.systemOrangeColor accessory:UITableViewCellAccessoryDisclosureIndicator];
@@ -79,6 +81,7 @@ static const NSInteger kLevelValues[] = { 0, 1, 6, 9 };
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
     [self updateStorage];
+    [self setDetail:AMStorage.saveFolderName forCell:self.saveFolderCell];
     NSUInteger n = AMPasswordBook.passwords.count;
     [self setDetail:n ? [NSString stringWithFormat:L(@"%lu 个"), (unsigned long)n] : @"" forCell:self.passwordsCell];
 }
@@ -91,7 +94,7 @@ static const NSInteger kLevelValues[] = { 0, 1, 6, 9 };
 
 - (void)updateStorage {
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
-        unsigned long long docs = [AMUI sizeOfItemAtURL:AMUI.documentsURL];
+        unsigned long long docs = AMStorage.appFootprint;
         unsigned long long tmp = [AMUI sizeOfItemAtURL:[NSURL fileURLWithPath:NSTemporaryDirectory()]];
         dispatch_async(dispatch_get_main_queue(), ^{
             [self setDetail:[AMUI byteString:(long long)docs] forCell:self.usageCell];
@@ -114,7 +117,7 @@ static const NSInteger kLevelValues[] = { 0, 1, 6, 9 };
         @[ self.formatCell, self.levelCell ],
         @[ self.smartCell, self.deleteCell, self.encodingCell, self.passwordsCell ],
         @[ self.languageCell ],
-        @[ self.usageCell, self.cacheCell ],
+        @[ self.saveFolderCell, self.usageCell, self.cacheCell ],
         @[ self.formatsCell, self.licensesCell, self.versionCell ],
     ];
 }
@@ -137,14 +140,14 @@ static const NSInteger kLevelValues[] = { 0, 1, 6, 9 };
     switch (section) {
     case 1: return L(@"智能解压：压缩包里只有一个文件或文件夹时直接解压出来，否则放进与压缩包同名的新文件夹。\n解压后如果文件名是乱码，请把“文件名编码”改为对应的语言后重新解压。\n解压加密压缩包时会自动尝试密码本里的密码。");
     case 2: return L(@"可以在系统“设置”中为本 App 单独选择语言（简体中文或英文）。");
-    case 3: return L(@"所有文件都保存在本机，可以在“文件”App 的“我的 iPhone › 解压大师”中找到。");
+    case 3: return L(@"为节省空间，解压大师不在 App 内保存文件：解压和压缩的结果都直接存到“保存位置”，可以在“文件”App 中管理。照片处理时的临时副本用完即删。");
     default: return nil;
     }
 }
 
 - (BOOL)tableView:(UITableView *)tableView shouldHighlightRowAtIndexPath:(NSIndexPath *)indexPath {
     UITableViewCell *c = [self tableView:tableView cellForRowAtIndexPath:indexPath];
-    return c == self.cacheCell || c == self.formatsCell || c == self.licensesCell || c == self.passwordsCell || c == self.languageCell;
+    return c == self.cacheCell || c == self.formatsCell || c == self.licensesCell || c == self.passwordsCell || c == self.languageCell || c == self.saveFolderCell;
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -152,6 +155,11 @@ static const NSInteger kLevelValues[] = { 0, 1, 6, 9 };
     UITableViewCell *c = [self tableView:tableView cellForRowAtIndexPath:indexPath];
     if (c == self.formatsCell) {
         [self.navigationController pushViewController:[AMFormatsViewController new] animated:YES];
+    } else if (c == self.saveFolderCell) {
+        __weak typeof(self) weak = self;
+        [AMStorage chooseSaveFolderFrom:self completion:^(NSURL *folder) {
+            [weak setDetail:AMStorage.saveFolderName forCell:weak.saveFolderCell];
+        }];
     } else if (c == self.passwordsCell) {
         [self.navigationController pushViewController:[AMPasswordBookViewController new] animated:YES];
     } else if (c == self.languageCell) {

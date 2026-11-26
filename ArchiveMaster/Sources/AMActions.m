@@ -113,10 +113,46 @@ typedef AMArchiveTask *_Nonnull (^AMArchiveWork)(NSArray<NSString *> *passwords,
               announce:(BOOL)announce
                   from:(UIViewController *)vc
             completion:(void (^)(NSURL *result, BOOL cancelled))completion {
+    [self extractArchive:archive volumes:nil into:directory onlyPaths:paths announce:announce from:vc completion:completion];
+}
+
++ (void)extractGroups:(NSArray<NSArray<NSURL *> *> *)groups into:(NSURL *)directory from:(UIViewController *)vc completion:(void (^)(NSArray<NSURL *> *))completion {
+    [self extractGroups:groups index:0 results:[NSMutableArray array] into:directory from:vc completion:completion];
+}
+
++ (void)extractGroups:(NSArray<NSArray<NSURL *> *> *)groups
+                index:(NSUInteger)index
+              results:(NSMutableArray<NSURL *> *)results
+                 into:(NSURL *)directory
+                 from:(UIViewController *)vc
+           completion:(void (^)(NSArray<NSURL *> *))completion {
+    if (index >= groups.count) {
+        if (results.count > 1) [AMUI toast:[NSString stringWithFormat:L(@"已解压 %lu 个压缩包"), (unsigned long)results.count] symbol:@"checkmark.circle.fill"];
+        else if (results.count == 1) [AMUI toast:[NSString stringWithFormat:L(@"已解压“%@”"), results.firstObject.lastPathComponent] symbol:@"checkmark.circle.fill"];
+        if (completion) completion(results);
+        return;
+    }
+    NSArray<NSURL *> *group = groups[index];
+    [self extractArchive:group.firstObject volumes:group.count > 1 ? group : nil into:directory onlyPaths:nil announce:NO from:vc
+              completion:^(NSURL *result, BOOL cancelled) {
+        if (result) [results addObject:result];
+        if (cancelled) { if (completion) completion(results); return; }
+        [self extractGroups:groups index:index + 1 results:results into:directory from:vc completion:completion];
+    }];
+}
+
++ (void)extractArchive:(NSURL *)archive
+               volumes:(NSArray<NSURL *> *)volumes
+                  into:(NSURL *)directory
+             onlyPaths:(NSSet<NSString *> *)paths
+              announce:(BOOL)announce
+                  from:(UIViewController *)vc
+            completion:(void (^)(NSURL *result, BOOL cancelled))completion {
     AMArchiveWork work = ^AMArchiveTask *(NSArray<NSString *> *passwords, AMProgressBlock progress, void (^done)(NSURL *, NSError *)) {
         AMExtractOptions *o = [AMExtractOptions fromSettings];
         o.passwords = passwords;
         o.onlyPaths = paths;
+        o.volumes = volumes;
         return [AMArchiver extractArchive:archive toDirectory:directory options:o progress:progress completion:done];
     };
     [self runJobTitle:L(@"正在解压…") symbol:@"arrow.up.bin" archive:archive typed:nil remember:NO from:vc work:work
@@ -187,7 +223,14 @@ typedef AMArchiveTask *_Nonnull (^AMArchiveWork)(NSArray<NSString *> *passwords,
     return L(@"归档");
 }
 
-+ (void)compressItems:(NSArray<NSURL *> *)items suggestedName:(NSString *)name into:(NSURL *)directory from:(UIViewController *)vc completion:(void (^)(NSURL *))completion {
++ (NSString *)createdMessageForResults:(NSArray<NSURL *> *)results settings:(AMCompressSettings *)settings {
+    if (results.count == 1) return [NSString stringWithFormat:L(@"已创建“%@”"), results.firstObject.lastPathComponent];
+    BOOL volumes = settings ? settings.output == AMOutputVolumes : [results.firstObject.pathExtension isEqualToString:@"001"];
+    if (volumes) return [NSString stringWithFormat:L(@"已创建 %lu 个分卷"), (unsigned long)results.count];
+    return [NSString stringWithFormat:L(@"已创建 %lu 个压缩包"), (unsigned long)results.count];
+}
+
++ (void)compressItems:(NSArray<NSURL *> *)items suggestedName:(NSString *)name into:(NSURL *)directory from:(UIViewController *)vc completion:(void (^)(NSArray<NSURL *> *))completion {
     if (items.count == 0) return;
     AMCompressViewController *opts = [[AMCompressViewController alloc] initWithItems:items suggestedName:name ?: [self suggestedNameForItems:items]];
     __weak UIViewController *weakVC = vc;
@@ -200,26 +243,27 @@ typedef AMArchiveTask *_Nonnull (^AMArchiveWork)(NSArray<NSString *> *passwords,
     [[AMUI topPresenterFrom:vc] presentViewController:nav animated:YES completion:nil];
 }
 
-+ (void)compressItems:(NSArray<NSURL *> *)items settings:(AMCompressSettings *)s into:(NSURL *)directory from:(UIViewController *)vc completion:(void (^)(NSURL *))completion {
++ (void)compressItems:(NSArray<NSURL *> *)items settings:(AMCompressSettings *)s into:(NSURL *)directory from:(UIViewController *)vc completion:(void (^)(NSArray<NSURL *> *))completion {
     AMProgressController *p = [[AMProgressController alloc] initWithTitle:L(@"正在压缩…") symbol:@"doc.zipper"];
     [p setProgress:0 detail:[NSString stringWithFormat:@"%@.%@", s.name, @(am_format_extension(s.format))]];
     __block AMArchiveTask *task = nil;
     p.cancelHandler = ^{ task.cancelled = YES; };
     id op = [AMUI beginLongOperation];
     [[AMUI topPresenterFrom:vc] presentViewController:p animated:YES completion:^{
-        task = [AMArchiver createArchiveNamed:s.name inDirectory:directory fromItems:items format:s.format level:s.level
-                                     password:s.password encryption:s.encryption progress:^(double fraction, NSString *item) {
+        task = [AMArchiver createArchivesNamed:s.name inDirectory:directory fromItems:items format:s.format level:s.level
+                                      password:s.password encryption:s.encryption output:s.output count:s.count
+                                      progress:^(double fraction, NSString *item) {
             [p setProgress:fraction detail:item];
-        } completion:^(NSURL *result, NSError *error) {
+        } completion:^(NSArray<NSURL *> *results, NSError *error) {
             [AMUI endLongOperation:op];
             [p dismissViewControllerAnimated:YES completion:^{
-                if (result) {
+                if (results.count) {
                     [AMUI hapticSuccess];
                 } else if (error.code != AMArchiveErrorCancelled) {
                     [AMUI hapticError];
                     [AMUI showError:error title:L(@"无法压缩") from:vc];
                 }
-                if (completion) completion(result);
+                if (completion) completion(results);
             }];
         }];
     }];
@@ -248,40 +292,67 @@ typedef AMArchiveTask *_Nonnull (^AMArchiveWork)(NSArray<NSString *> *passwords,
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         NSFileManager *fm = NSFileManager.defaultManager;
         [fm createDirectoryAtURL:directory withIntermediateDirectories:YES attributes:nil error:nil];
-        NSMutableArray<AMPickedAsset *> *assets = [NSMutableArray array];
-        NSInteger failed = 0;
-        for (NSUInteger i = 0; i < results.count && !task.cancelled; i++) {
+        // Load several items at once (one at a time made big selections crawl), keep the picked order,
+        // and move the system's temporary file instead of copying it.
+        NSUInteger total = results.count;
+        NSMutableArray *slots = [NSMutableArray arrayWithCapacity:total];
+        for (NSUInteger i = 0; i < total; i++) [slots addObject:NSNull.null];
+        NSLock *lock = [NSLock new];
+        __block NSInteger failed = 0;
+        __block NSUInteger finished = 0;
+        dispatch_semaphore_t gate = dispatch_semaphore_create(4);
+        dispatch_group_t group = dispatch_group_create();
+        void (^progressed)(void) = ^{
+            NSUInteger d = finished;
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [p setProgress:(double)d / total detail:[NSString stringWithFormat:@"%lu / %lu", (unsigned long)d, (unsigned long)total]];
+            });
+        };
+        for (NSUInteger i = 0; i < total && !task.cancelled; i++) {
+            dispatch_semaphore_wait(gate, DISPATCH_TIME_FOREVER);
             NSItemProvider *provider = results[i].itemProvider;
             NSString *type = [self typeForProvider:provider imagesOnly:imagesOnly];
-            if (!type) { failed++; continue; }
-            dispatch_semaphore_t sem = dispatch_semaphore_create(0);
-            __block NSURL *copied = nil;
-            [provider loadFileRepresentationForTypeIdentifier:type completionHandler:^(NSURL *url, NSError *error) {
-                if (url) {
-                    NSString *name = provider.suggestedName.length ? provider.suggestedName : [NSString stringWithFormat:@"IMG_%04lu", (unsigned long)i + 1];
-                    NSString *ext = url.pathExtension.length ? url.pathExtension : [UTType typeWithIdentifier:type].preferredFilenameExtension;
-                    if (ext.length && ![name.pathExtension.lowercaseString isEqualToString:ext.lowercaseString])
-                        name = [name stringByAppendingPathExtension:ext];
-                    NSURL *dest = [AMUI uniqueURLForName:name inDirectory:directory];
-                    if ([fm copyItemAtURL:url toURL:dest error:nil]) copied = dest;
-                }
-                dispatch_semaphore_signal(sem);
-            }];
-            dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
-            if (copied) {
-                AMPickedAsset *a = [AMPickedAsset new];
-                a.url = copied;
-                a.assetIdentifier = results[i].assetIdentifier;
-                a.isVideo = [[UTType typeWithIdentifier:type] conformsToType:UTTypeMovie];
-                [assets addObject:a];
-            } else {
-                failed++;
+            NSString *assetID = results[i].assetIdentifier;
+            if (!type) {
+                [lock lock]; failed++; finished++; [lock unlock];
+                progressed();
+                dispatch_semaphore_signal(gate);
+                continue;
             }
-            NSUInteger done = i + 1;
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [p setProgress:(double)done / results.count detail:[NSString stringWithFormat:@"%lu / %lu", (unsigned long)done, (unsigned long)results.count]];
-            });
+            dispatch_group_enter(group);
+            [provider loadFileRepresentationForTypeIdentifier:type completionHandler:^(NSURL *url, NSError *error) {
+                @autoreleasepool {
+                    AMPickedAsset *asset = nil;
+                    if (url && !task.cancelled) {
+                        NSString *name = provider.suggestedName.length ? provider.suggestedName : [NSString stringWithFormat:@"IMG_%04lu", (unsigned long)i + 1];
+                        NSString *ext = url.pathExtension.length ? url.pathExtension : [UTType typeWithIdentifier:type].preferredFilenameExtension;
+                        if (ext.length && ![name.pathExtension.lowercaseString isEqualToString:ext.lowercaseString])
+                            name = [name stringByAppendingPathExtension:ext];
+                        [lock lock];  // picking a free name and claiming it must not race with other loads
+                        NSURL *dest = [AMUI uniqueURLForName:name inDirectory:directory];
+                        BOOL ok = [fm moveItemAtURL:url toURL:dest error:nil] || [fm copyItemAtURL:url toURL:dest error:nil];
+                        [lock unlock];
+                        if (ok) {
+                            asset = [AMPickedAsset new];
+                            asset.url = dest;
+                            asset.assetIdentifier = assetID;
+                            asset.isVideo = [[UTType typeWithIdentifier:type] conformsToType:UTTypeMovie];
+                        }
+                    }
+                    [lock lock];
+                    if (asset) slots[i] = asset;
+                    else failed++;
+                    finished++;
+                    [lock unlock];
+                    progressed();
+                }
+                dispatch_semaphore_signal(gate);
+                dispatch_group_leave(group);
+            }];
         }
+        dispatch_group_wait(group, DISPATCH_TIME_FOREVER);
+        NSMutableArray<AMPickedAsset *> *assets = [NSMutableArray array];
+        for (id slot in slots) if (slot != NSNull.null) [assets addObject:slot];
         BOOL cancelled = task.cancelled;
         dispatch_async(dispatch_get_main_queue(), ^{
             [AMUI endLongOperation:op];

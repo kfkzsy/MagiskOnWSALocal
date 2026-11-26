@@ -8,6 +8,8 @@
 
 **iPhone Duo 与 iOS 26 设计**：App 以 iOS 27.1 SDK 版本链接，在 iPhone Duo 展开的内屏上全屏显示（不再是居中的小窗口和黑边）；展开时“文件”页变为左右两栏（左侧文件列表，右侧预览或压缩包内容），合上后自动回到单栏。在 iOS 26 及以上使用 Liquid Glass 设计：玻璃质感的标签栏（滚动时自动收起）、导航栏、进度卡片、提示条和按钮；表单页在宽屏上保持合适的阅读宽度。iOS 15–25 上自动使用对应的旧样式。
 
+**不占用 App 空间**：解压大师不在 App 内保存任何文件。首次使用时选择一个“保存位置”（例如“我的 iPhone › 下载”或 iCloud 云盘中的文件夹），解压、压缩、图片处理的结果都直接存到那里；“文件”页就是在浏览这个文件夹。从其他 App 分享进来的文件处理完即删除系统临时副本；照片处理用的临时副本用完即删；旧版本留在 App 内的文件会提示移出或删除。
+
 **界面语言**：简体中文（默认），另附英文。系统弹出的选择器、分享面板等也会跟随显示中文；可以在系统“设置 › 解压大师 › 语言”中切换。
 
 | 页面 | 功能 |
@@ -28,10 +30,15 @@
 
 | | 格式 |
 | --- | --- |
-| 压缩 + 解压 | ZIP（含 AES-256 / ZipCrypto 密码）、7Z、TAR、TAR.GZ/TGZ、TAR.BZ2、TAR.XZ、TAR.ZST、TAR.LZ4、ISO、CPIO；单文件 GZ、BZ2、XZ、ZST、LZ4 |
-| 仅解压 | RAR（RAR4 / RAR5、固实）、分卷（`.part1.rar`、`.r00`、`.7z.001`、`.zip.001`）、CAB、LZH/LHA、XAR/PKG、DEB、RPM、AR、APK/IPA/JAR、LZMA、LZIP、Z、UU、WARC、MTREE |
+| 压缩 + 解压 | ZIP（含 AES-256 / ZipCrypto 密码）、7Z、**RAR**、TAR、TAR.GZ/TGZ、TAR.BZ2、TAR.XZ、TAR.ZST、TAR.LZ4、ISO、CPIO；单文件 GZ、BZ2、XZ、ZST、LZ4 |
+| 仅解压 | RAR4、CAB、LZH/LHA、XAR/PKG、DEB、RPM、AR、APK/IPA/JAR、LZMA、LZIP、Z、UU、WARC、MTREE |
+| 分卷 | 解压：`.part1.rar`、`.rar`+`.r00`、`.z01…`+`.zip`、`.7z.001` / `.7z.1` / `.zip.001` 等；压缩：任意格式分成 N 卷（`.001`、`.002`…） |
 
-限制：**加密的 RAR、7Z 暂不能解压**（libarchive 不支持这两种加密）；7Z 不能设置密码（压缩时只有 ZIP 能加密）。
+**生成多个压缩包**：压缩时可选择“分卷压缩”（一个压缩包切成 N 个分卷）或“多个独立压缩包”（文件平均分到 N 个压缩包，各自能单独解压），数量可调（2–99）。
+
+**关于 RAR 压缩**：RAR 的压缩算法是 RARLAB 的专有技术，只有 WinRAR 官方工具能生成“压缩过的” RAR，没有可用的开源实现。本 App 按公开的 RAR5 格式规范生成标准 `.rar` 文件（“存储”方式，只打包不压缩），WinRAR、7-Zip 等都能打开；需要减小体积请选 7Z 或 ZIP。
+
+限制：**加密的 RAR、7Z 暂不能解压**（libarchive 不支持这两种加密）；压缩时只有 ZIP 能设置密码。
 
 ## 安装
 
@@ -61,7 +68,7 @@ cd ArchiveMaster
 LIBARCHIVE_PREFIX=<本机构建的 libarchive 安装目录> LIBARCHIVE_SRC=<libarchive 源码目录> ./tests/run_host_tests.sh
 ```
 
-测试覆盖：10 种打包格式和 5 种单文件格式的压缩→解压往返校验、ZIP AES-256 / ZipCrypto 的“需要密码 / 密码错误 / 密码正确”、密码本（多个候选密码）、只解压选中项、ZipCrypto 错误密码 1000 次压力测试、取消、非压缩包识别、GBK 文件名自动识别、RAR4/RAR5/7z/CAB/LZH 样本解压、RAR 分卷与 7z 拆分卷解压、加密 RAR/7z 的提示。
+测试覆盖：10 种打包格式和 5 种单文件格式的压缩→解压往返校验、ZIP AES-256 / ZipCrypto 的“需要密码 / 密码错误 / 密码正确”、密码本（多个候选密码）、只解压选中项、ZipCrypto 错误密码 1000 次压力测试、RAR5 生成与读取、分卷切分与解压、条目前缀、取消、非压缩包识别、GBK 文件名自动识别、RAR4/RAR5/7z/CAB/LZH 样本解压、RAR 分卷与 7z 拆分卷解压、加密 RAR/7z 的提示。
 
 ## 代码结构
 
@@ -72,6 +79,7 @@ Sources/
   AMMediaCompressor.[hm]  图片按字节预算压缩（先降画质再降分辨率）、视频转码
   AMActions.[hm]          通用流程：进度卡片、密码本与密码输入、批量解压、相册导入
   AMPasswordBook.[hm]     密码本（钥匙串）
+  AMStorage.[hm]          保存位置（App 外的文件夹，安全书签）、系统文件/文件夹选择器
   AMFilesSplitViewController      “文件”页容器：宽屏两栏（列表 + 预览），窄屏单栏
   AMFileBrowserViewController     “文件”页
   AMArchiveContentsViewController 压缩包内容（预览单个文件、只解压所选）

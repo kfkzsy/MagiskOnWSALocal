@@ -4,13 +4,14 @@
 #import "AMMediaCompressor.h"
 #import "AMProgressController.h"
 #import "AMQuickLook.h"
+#import "AMStorage.h"
 #import "AMUI.h"
 #import <AVFoundation/AVFoundation.h>
 #import <Photos/Photos.h>
 #import <PhotosUI/PhotosUI.h>
 #import <QuickLookThumbnailing/QuickLookThumbnailing.h>
 
-typedef NS_ENUM(NSInteger, AMPDestination) { AMPDestinationAlbum, AMPDestinationFiles, AMPDestinationZip };
+typedef NS_ENUM(NSInteger, AMPDestination) { AMPDestinationAlbum, AMPDestinationFiles, AMPDestinationZip, AMPDestinationShare };
 
 static const long long KB = 1024, MB = 1024 * 1024;
 static const long long kPerImageMin = 30 * 1024, kPerImageMax = 10 * 1024 * 1024;
@@ -329,7 +330,7 @@ static float AMLogPosition(long long v, long long lo, long long hi) {
     self.videoCell = [AMForm popupCellWithTitle:L(@"视频") options:@[ L(@"保持原样"), L(@"压缩为 1080p"), L(@"压缩为 720p"), L(@"压缩为 540p") ] selected:0 handler:^(NSInteger index) {
         weak.videoPreset = index;
     }];
-    self.destCell = [AMForm popupCellWithTitle:L(@"保存到") options:@[ L(@"相册"), L(@"“文件”页面"), L(@"ZIP 压缩包") ] selected:0 handler:^(NSInteger index) {
+    self.destCell = [AMForm popupCellWithTitle:L(@"保存到") options:@[ L(@"相册"), L(@"保存位置"), L(@"压缩包（可选格式）"), L(@"分享…") ] selected:0 handler:^(NSInteger index) {
         weak.destination = (AMPDestination)index;
         [weak refresh];
     }];
@@ -406,8 +407,9 @@ static float AMLogPosition(long long v, long long lo, long long hi) {
             saveFooter = self.canDeleteOriginals ? L(@"压缩后的照片保留原来的拍摄时间。删除的原图会移到“最近删除”，30 天内可以恢复。")
                                                  : L(@"压缩后的照片保留原来的拍摄时间，原图不受影响。");
             break;
-        case AMPDestinationFiles: saveFooter = L(@"保存到“文件”页面中的新文件夹。"); break;
-        case AMPDestinationZip: saveFooter = L(@"保存为一个 ZIP 压缩包，方便直接发送。"); break;
+        case AMPDestinationFiles: saveFooter = L(@"存到“保存位置”（App 外的文件夹）。"); break;
+        case AMPDestinationZip: saveFooter = L(@"打包成压缩包后存到“保存位置”，可选 ZIP、7Z、RAR 等格式，也可以分卷或拆成多个压缩包。"); break;
+        case AMPDestinationShare: saveFooter = L(@"压缩后直接分享给其他 App 或存到任意位置，App 内不保留副本。"); break;
         }
         [sections addObject:[AMPSection header:L(@"保存") footer:saveFooter cells:save]];
         if (self.imageCount - self.gifCount > 0)
@@ -746,37 +748,54 @@ static float AMLogPosition(long long v, long long lo, long long hi) {
         break;
     }
     case AMPDestinationFiles: {
-        NSURL *dest;
-        NSError *error = nil;
-        BOOL ok;
-        if (results.count == 1) {
-            dest = [AMUI uniqueURLForName:results[0].url.lastPathComponent inDirectory:AMUI.documentsURL];
-            ok = [fm moveItemAtURL:results[0].url toURL:dest error:&error];
+        [AMStorage withSaveFolderFrom:self block:^(NSURL *folder) {
+            typeof(self) strong = weak;
+            NSURL *dest;
+            NSError *error = nil;
+            BOOL ok;
+            if (results.count == 1) {
+                dest = [AMUI uniqueURLForName:results[0].url.lastPathComponent inDirectory:folder];
+                ok = [fm moveItemAtURL:results[0].url toURL:dest error:&error];
+            } else {
+                dest = [AMUI uniqueURLForName:[strong stampedName:L(@"压缩的照片")] inDirectory:folder];
+                ok = [fm createDirectoryAtURL:dest withIntermediateDirectories:NO attributes:nil error:&error];
+                for (AMMediaResult *r in results) {
+                    if (!ok) break;
+                    ok = [fm moveItemAtURL:r.url toURL:[AMUI uniqueURLForName:r.url.lastPathComponent inDirectory:dest] error:&error];
+                }
+            }
             [fm removeItemAtURL:outDir error:nil];
-        } else {
-            dest = [AMUI uniqueURLForName:[self stampedName:L(@"压缩的照片")] inDirectory:AMUI.documentsURL];
-            ok = [fm moveItemAtURL:outDir toURL:dest error:&error];
-        }
-        if (!ok) {
-            [fm removeItemAtURL:outDir error:nil];
-            [AMUI showError:error title:L(@"无法保存") from:self];
-            return;
-        }
-        [AMUI hapticSuccess];
-        [self showResultTitle:[NSString stringWithFormat:L(@"已保存到“%@”"), dest.lastPathComponent] message:summary url:dest];
+            if (!strong) return;
+            if (!ok) { [AMUI showError:error title:L(@"无法保存") from:strong]; return; }
+            [AMUI hapticSuccess];
+            [strong showResultTitle:[NSString stringWithFormat:L(@"已保存到“%@”"), dest.lastPathComponent] message:summary url:dest];
+        }];
         break;
     }
     case AMPDestinationZip: {
-        AMCompressSettings *s = [AMCompressSettings new];
-        s.name = [self stampedName:L(@"压缩的照片")];
-        s.format = AM_FMT_ZIP;
-        s.level = 0;  // JPEG/HEIC/MP4 are already compressed; storing is fastest
         NSMutableArray *urls = [NSMutableArray array];
         for (AMMediaResult *r in results) [urls addObject:r.url];
-        [AMActions compressItems:urls settings:s into:AMUI.documentsURL from:self completion:^(NSURL *result) {
-            [fm removeItemAtURL:outDir error:nil];
-            if (result) [weak showResultTitle:[NSString stringWithFormat:L(@"已创建“%@”"), result.lastPathComponent] message:summary url:result];
+        [AMStorage withSaveFolderFrom:self block:^(NSURL *folder) {
+            typeof(self) strong = weak;
+            if (!strong) return;
+            [AMActions compressItems:urls suggestedName:[strong stampedName:L(@"压缩的照片")] into:folder from:strong completion:^(NSArray<NSURL *> *created) {
+                [fm removeItemAtURL:outDir error:nil];
+                if (created.count) [weak showResultTitle:[AMActions createdMessageForResults:created settings:nil] message:summary url:created.firstObject];
+            }];
         }];
+        break;
+    }
+    case AMPDestinationShare: {
+        NSMutableArray *urls = [NSMutableArray array];
+        for (AMMediaResult *r in results) [urls addObject:r.url];
+        UIActivityViewController *share = [[UIActivityViewController alloc] initWithActivityItems:urls applicationActivities:nil];
+        share.completionWithItemsHandler = ^(UIActivityType type, BOOL completed, NSArray *items, NSError *error) {
+            [fm removeItemAtURL:outDir error:nil];  // nothing stays in the app
+        };
+        share.popoverPresentationController.sourceView = self.actionButton;
+        share.popoverPresentationController.sourceRect = self.actionButton.bounds;
+        [AMUI toast:summary symbol:@"checkmark.circle.fill"];
+        [[AMUI topPresenterFrom:self] presentViewController:share animated:YES completion:nil];
         break;
     }
     }
@@ -861,23 +880,29 @@ static float AMLogPosition(long long v, long long lo, long long hi) {
     BOOL limit = self.limitSize && self.canLimitPack;
     long long target = self.packTarget;
     __weak typeof(self) weak = self;
-    opts.onConfirm = ^(AMCompressSettings *s) {
+    [AMStorage withSaveFolderFrom:self block:^(NSURL *folder) {
+        opts.onConfirm = ^(AMCompressSettings *s) {
+            typeof(self) strong = weak;
+            if (!strong) return;
+            if (limit) [strong packFitting:s target:target into:folder];
+            else [AMActions compressItems:urls settings:s into:folder from:strong completion:^(NSArray<NSURL *> *created) {
+                if (!created.count) return;
+                unsigned long long size = 0;
+                for (NSURL *u in created) size += [AMUI sizeOfItemAtURL:u];
+                [weak showResultTitle:[AMActions createdMessageForResults:created settings:s]
+                              message:[NSString stringWithFormat:L(@"共 %@，已存到“%@”。"), [AMUI byteString:(long long)size], AMStorage.saveFolderName]
+                                  url:created.firstObject];
+            }];
+        };
+        UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:opts];
+        nav.modalPresentationStyle = UIModalPresentationFormSheet;
         typeof(self) strong = weak;
-        if (!strong) return;
-        if (limit) [strong packFitting:s target:target];
-        else [AMActions compressItems:urls settings:s into:AMUI.documentsURL from:strong completion:^(NSURL *result) {
-            if (result) [weak showResultTitle:[NSString stringWithFormat:L(@"已创建“%@”"), result.lastPathComponent]
-                                      message:[NSString stringWithFormat:L(@"大小 %@，已保存在“文件”页面。"), [AMUI byteString:(long long)[AMUI sizeOfItemAtURL:result]]]
-                                          url:result];
-        }];
-    };
-    UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:opts];
-    nav.modalPresentationStyle = UIModalPresentationFormSheet;
-    [self presentViewController:nav animated:YES completion:nil];
+        if (strong) [[AMUI topPresenterFrom:strong] presentViewController:nav animated:YES completion:nil];
+    }];
 }
 
 /// Compresses the photos just enough that the whole archive lands near `target`, then packs.
-- (void)packFitting:(AMCompressSettings *)s target:(long long)target {
+- (void)packFitting:(AMCompressSettings *)s target:(long long)target into:(NSURL *)folder {
     NSArray<AMPickedAsset *> *images = self.compressibleImages;
     NSMutableArray<AMPickedAsset *> *others = [NSMutableArray array];
     for (AMPickedAsset *a in self.assets) if (![self isCompressibleImage:a]) [others addObject:a];
@@ -937,13 +962,14 @@ static float AMLogPosition(long long v, long long lo, long long hi) {
                         [fm removeItemAtURL:fitDir error:nil];
                         return;
                     }
-                    [AMActions compressItems:fitted settings:s into:AMUI.documentsURL from:strong completion:^(NSURL *result) {
+                    [AMActions compressItems:fitted settings:s into:folder from:strong completion:^(NSArray<NSURL *> *created) {
                         [fm removeItemAtURL:fitDir error:nil];
-                        if (!result) return;
-                        long long size = (long long)[AMUI sizeOfItemAtURL:result];
+                        if (!created.count) return;
+                        long long size = 0;
+                        for (NSURL *u in created) size += (long long)[AMUI sizeOfItemAtURL:u];
                         NSString *msg = [NSString stringWithFormat:L(@"目标 %@，实际 %@。"), [AMUI byteString:target], [AMUI byteString:size]];
                         if (size > target * 1.05) msg = [msg stringByAppendingString:L(@"部分照片已压缩到最小，仍略超出目标。")];
-                        [weak showResultTitle:[NSString stringWithFormat:L(@"已创建“%@”"), result.lastPathComponent] message:msg url:result];
+                        [weak showResultTitle:[AMActions createdMessageForResults:created settings:s] message:msg url:created.firstObject];
                     }];
                 }];
             });

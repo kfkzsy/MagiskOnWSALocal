@@ -173,6 +173,68 @@ static void test_zipcrypto_wrong_password_stress(void) {
     printf("  ZipCrypto wrong-password stress (1000x) ok\n");
 }
 
+static int list_cb(void *ctx, const am_entry_info *info);
+
+static void test_split_and_prefix(void) {
+    char out[1200], in1[1200], in2[1200], dest[1200], err[512] = "";
+    snprintf(in1, sizeof in1, "%s/src/测试文件夹", W);
+    snprintf(in2, sizeof in2, "%s/src/单个文件.txt", W);
+    const char *inputs[] = { in1, in2 };
+
+    // Split a finished 7z into 3 volumes (tail-first), then extract the volumes.
+    snprintf(out, sizeof out, "%s/vol.7z", W);
+    am_write_opts wo = { .format = AM_FMT_7Z, .level = 1 };
+    int rc = am_create(out, inputs, 2, &wo, NULL, NULL, err, sizeof err);
+    CHECK(rc == AM_OK, "create for split rc=%d", rc);
+    struct stat st; stat(out, &st);
+    char parts[3][1200]; const char *pp[3];
+    for (int i = 0; i < 3; i++) { snprintf(parts[i], sizeof parts[i], "%s/vol.7z.%03d", W, i + 1); pp[i] = parts[i]; }
+    rc = am_split_file(out, 3, pp, NULL, NULL, err, sizeof err);
+    CHECK(rc == AM_OK, "split rc=%d %s", rc, err);
+    CHECK(access(out, F_OK) != 0, "source not removed after split");
+    long long total = 0;
+    for (int i = 0; i < 3; i++) { struct stat ps; CHECK(stat(pp[i], &ps) == 0, "part %d missing", i + 1); total += ps.st_size; }
+    CHECK(total == st.st_size, "parts add up to %lld, want %lld", total, (long long)st.st_size);
+    snprintf(dest, sizeof dest, "%s/vol_out", W);
+    fresh_dir(dest);
+    rc = am_extract_volumes(pp, 3, dest, NULL, NULL, NULL, err, sizeof err);
+    CHECK(rc == AM_OK, "extract split rc=%d %s", rc, err);
+    CHECK(sh("diff -r '%s/src' '%s' >/dev/null", W, dest) == 0, "split content differs");
+    printf("  split into 3 volumes + extract ok\n");
+
+    // Entries stored under a prefix folder.
+    snprintf(out, sizeof out, "%s/prefix.zip", W);
+    am_write_opts po = { .format = AM_FMT_ZIP, .level = 1, .prefix = "前缀" };
+    rc = am_create(out, inputs, 2, &po, NULL, NULL, err, sizeof err);
+    CHECK(rc == AM_OK, "prefix create rc=%d", rc);
+    snprintf(dest, sizeof dest, "%s/prefix_out", W);
+    fresh_dir(dest);
+    rc = am_extract(out, dest, NULL, NULL, NULL, err, sizeof err);
+    CHECK(rc == AM_OK && sh("test -f '%s/前缀/单个文件.txt' && test -f '%s/前缀/测试文件夹/big.txt'", dest, dest) == 0, "prefix layout wrong rc=%d", rc);
+    printf("  entry prefix ok\n");
+}
+
+static void test_rar_store(void) {
+    char out[1200], in1[1200], in2[1200], dest[1200], err[512] = "";
+    snprintf(in1, sizeof in1, "%s/src/测试文件夹", W);
+    snprintf(in2, sizeof in2, "%s/src/单个文件.txt", W);
+    snprintf(out, sizeof out, "%s/out.rar", W);
+    snprintf(dest, sizeof dest, "%s/x_rar", W);
+    const char *inputs[] = { in1, in2 };
+    am_write_opts wo = { .format = AM_FMT_RAR };
+    int calls = 0;
+    int rc = am_create(out, inputs, 2, &wo, count_cb, &calls, err, sizeof err);
+    CHECK(rc == AM_OK, "create rar rc=%d %s", rc, err);
+    fresh_dir(dest);
+    int n = 0;
+    int lr = am_list(out, NULL, list_cb, &n, err, sizeof err);
+    rc = am_extract(out, dest, NULL, NULL, NULL, err, sizeof err);
+    CHECK(rc == AM_OK && lr == AM_OK, "extract rar rc=%d list=%d %s", rc, lr, err);
+    CHECK(sh("diff -r '%s/src' '%s' >/dev/null", W, dest) == 0, "rar content differs");
+    CHECK(sh("head -c 8 '%s' | od -An -tx1 | tr -d ' \\n' | grep -q 526172211a070100", out) == 0, "missing RAR5 signature");
+    printf("  rar (RAR5 store) ok, %d entries\n", n);
+}
+
 static void test_cancel(void) {
     char out[1200], in[1200], err[512] = "";
     snprintf(in, sizeof in, "%s/src/测试文件夹", W);
@@ -282,6 +344,8 @@ int main(int argc, char **argv) {
     test_password(AM_ENC_ZIPCRYPTO);
     test_filter_and_passwords();
     test_zipcrypto_wrong_password_stress();
+    test_split_and_prefix();
+    test_rar_store();
     test_cancel();
     test_not_archive();
     test_gbk(argv[2]);

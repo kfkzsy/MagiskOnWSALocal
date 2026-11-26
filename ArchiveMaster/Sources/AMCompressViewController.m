@@ -10,6 +10,7 @@ typedef NS_ENUM(NSInteger, AMCSection) {
     AMCSectionFormat,
     AMCSectionLevel,
     AMCSectionPassword,
+    AMCSectionOutput,
     AMCSectionSummary,
 };
 
@@ -30,6 +31,10 @@ static NSInteger AMLevelIndex(NSInteger level) {
 @property (nonatomic) NSInteger level;
 @property (nonatomic) BOOL usePassword;
 @property (nonatomic) am_encryption encryption;
+@property (nonatomic) AMOutputMode output;
+@property (nonatomic) NSInteger count;
+@property (nonatomic) BOOL singleFolderOrFiles;  // independent archives possible
+@property (nonatomic, strong) UITableViewCell *outputCell, *countCell;
 
 @property (nonatomic, strong) UITableViewCell *nameCell, *formatCell, *levelCell, *pwSwitchCell, *pwCell, *confirmCell, *encCell, *summaryCell;
 @property (nonatomic, strong) UITextField *nameField, *pwField, *confirmField;
@@ -155,6 +160,21 @@ static NSInteger AMLevelIndex(NSInteger level) {
     }];
 
     self.summaryCell = [AMForm valueCellWithTitle:L(@"内容") detail:L(@"正在计算…") symbol:nil tint:nil accessory:UITableViewCellAccessoryNone];
+
+    // Several archives: split volumes, or independent archives (needs several items or a folder).
+    self.count = 2;
+    NSNumber *isDir = nil;
+    [self.items.firstObject getResourceValue:&isDir forKey:NSURLIsDirectoryKey error:nil];
+    self.singleFolderOrFiles = self.items.count > 1 || isDir.boolValue;
+    NSArray *outputs = self.singleFolderOrFiles ? @[ L(@"一个压缩包"), L(@"分卷压缩"), L(@"多个独立压缩包") ] : @[ L(@"一个压缩包"), L(@"分卷压缩") ];
+    self.outputCell = [AMForm popupCellWithTitle:L(@"生成") options:outputs selected:0 handler:^(NSInteger index) {
+        [weak outputSelected:(AMOutputMode)index];
+    }];
+    self.countCell = [AMForm stepperCellWithTitle:L(@"数量") value:self.count min:2 max:99 format:^NSString *(NSInteger v) {
+        return [NSString stringWithFormat:L(@"%ld 个"), (long)v];
+    } handler:^(NSInteger v) {
+        weak.count = v;
+    }];
 }
 
 - (void)computeSummary {
@@ -203,6 +223,20 @@ static NSInteger AMLevelIndex(NSInteger level) {
     [self validate];
 }
 
+- (void)outputSelected:(AMOutputMode)mode {
+    BOOL had = self.output != AMOutputSingle;
+    self.output = mode;
+    BOOL has = mode != AMOutputSingle;
+    NSInteger section = (NSInteger)[self.sections indexOfObject:@(AMCSectionOutput)];
+    if (section != NSNotFound && had != has) {
+        NSArray *rows = @[ [NSIndexPath indexPathForRow:1 inSection:section] ];
+        [self.tableView performBatchUpdates:^{
+            if (has) [self.tableView insertRowsAtIndexPaths:rows withRowAnimation:UITableViewRowAnimationFade];
+            else [self.tableView deleteRowsAtIndexPaths:rows withRowAnimation:UITableViewRowAnimationFade];
+        } completion:nil];
+    }
+}
+
 - (BOOL)passwordActive { return self.usePassword && self.info.supportsPassword; }
 
 - (void)validate {
@@ -228,6 +262,8 @@ static NSInteger AMLevelIndex(NSInteger level) {
     s.level = self.level;
     s.password = self.passwordActive ? self.pwField.text : nil;
     s.encryption = self.passwordActive ? self.encryption : AM_ENC_NONE;
+    s.output = self.output;
+    s.count = self.output == AMOutputSingle ? 1 : self.count;
     [self.view endEditing:YES];
     void (^cb)(AMCompressSettings *) = self.onConfirm;
     [self.navigationController dismissViewControllerAnimated:YES completion:^{
@@ -247,8 +283,10 @@ static NSInteger AMLevelIndex(NSInteger level) {
 #pragma mark - Table
 
 - (NSArray<NSNumber *> *)sections {
-    NSMutableArray *s = [@[ @(AMCSectionName), @(AMCSectionFormat), @(AMCSectionLevel) ] mutableCopy];
+    NSMutableArray *s = [@[ @(AMCSectionName), @(AMCSectionFormat) ] mutableCopy];
+    if (self.info.compresses) [s addObject:@(AMCSectionLevel)];
     if (self.info.supportsPassword) [s addObject:@(AMCSectionPassword)];
+    [s addObject:@(AMCSectionOutput)];
     [s addObject:@(AMCSectionSummary)];
     return s;
 }
@@ -262,7 +300,11 @@ static NSInteger AMLevelIndex(NSInteger level) {
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    return [self kindForSection:section] == AMCSectionPassword ? (self.usePassword ? 4 : 1) : 1;
+    switch ([self kindForSection:section]) {
+    case AMCSectionPassword: return self.usePassword ? 4 : 1;
+    case AMCSectionOutput: return self.output == AMOutputSingle ? 1 : 2;
+    default: return 1;
+    }
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -271,6 +313,7 @@ static NSInteger AMLevelIndex(NSInteger level) {
     case AMCSectionFormat: return self.formatCell;
     case AMCSectionLevel: return self.levelCell;
     case AMCSectionPassword: return @[ self.pwSwitchCell, self.pwCell, self.confirmCell, self.encCell ][(NSUInteger)indexPath.row];
+    case AMCSectionOutput: return indexPath.row == 0 ? self.outputCell : self.countCell;
     case AMCSectionSummary: return self.summaryCell;
     }
     return self.summaryCell;
@@ -282,6 +325,7 @@ static NSInteger AMLevelIndex(NSInteger level) {
     case AMCSectionFormat: return L(@"格式");
     case AMCSectionLevel: return L(@"压缩级别");
     case AMCSectionPassword: return L(@"加密");
+    case AMCSectionOutput: return L(@"输出");
     case AMCSectionSummary: return nil;
     }
     return nil;
@@ -294,6 +338,9 @@ static NSInteger AMLevelIndex(NSInteger level) {
     case AMCSectionLevel: return L(@"级别越高，文件越小，但耗时越长。照片、视频等本身已压缩过的文件通常很难再变小。");
     case AMCSectionPassword:
         return L(@"加密后，打开压缩包里的文件需要输入密码，忘记密码将无法解压。AES-256 更安全；ZipCrypto 兼容 Windows 自带解压等旧软件，但安全性较低。");
+    case AMCSectionOutput:
+        return self.singleFolderOrFiles ? L(@"分卷压缩：把一个压缩包切成多个分卷（.001、.002…），需要全部分卷才能解压，适合有单个文件大小限制的场合。\n多个独立压缩包：把文件平均分到多个压缩包，每个都能单独解压。")
+                                        : L(@"分卷压缩：把一个压缩包切成多个分卷（.001、.002…），需要全部分卷才能解压，适合有单个文件大小限制的场合。");
     case AMCSectionSummary: return nil;
     }
     return nil;

@@ -36,6 +36,9 @@ typedef enum {
     AM_FMT_XZ,
     AM_FMT_ZST,
     AM_FMT_LZ4,
+    /* RAR5 container, "store" method: RAR's compression algorithm is proprietary to RARLAB, but the
+     * format itself is documented, so files are packed without compression (readable by all RAR tools). */
+    AM_FMT_RAR,
     AM_FMT_COUNT
 } am_format;
 
@@ -63,6 +66,7 @@ typedef struct {
     int level;              /* 0 (store) .. 9 (best) */
     const char *password;   /* ZIP only */
     am_encryption encryption;
+    const char *prefix;     /* optional folder all entries are stored under, e.g. "Photos" */
 } am_write_opts;
 
 typedef struct {
@@ -94,6 +98,12 @@ int am_list_volumes(const char *const *volumes, int count, const am_read_opts *o
  * under its own last path component, recursing into directories. */
 int am_create(const char *output, const char *const *inputs, int count, const am_write_opts *opts,
               am_progress_cb cb, void *ctx, char *err, size_t errlen);
+
+/* Splits `path` into `parts` consecutive pieces written to `outputs[0..parts-1]` (like 7-Zip's
+ * ".001/.002" volumes; concatenating them restores the file). Works from the end, truncating the
+ * source as it goes, so it needs little extra space. `path` no longer exists on success. */
+int am_split_file(const char *path, int parts, const char *const *outputs, am_progress_cb cb, void *ctx,
+                  char *err, size_t errlen);
 
 /* File extension (without dot) for a format, e.g. "tar.gz". */
 const char *am_format_extension(am_format fmt);

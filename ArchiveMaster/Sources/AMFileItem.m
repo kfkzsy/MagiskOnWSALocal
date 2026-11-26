@@ -11,6 +11,7 @@
 @property (nonatomic, readwrite, nullable) NSDate *modified;
 @property (nonatomic, readwrite) NSInteger childCount;
 @property (nonatomic, readwrite) AMFileKind kind;
+@property (nonatomic, readwrite) BOOL isCloudPlaceholder;
 @end
 
 @implementation AMFileItem
@@ -18,13 +19,25 @@
 + (NSArray<AMFileItem *> *)itemsInDirectory:(NSURL *)directory sort:(AMSortMode)sort {
     NSFileManager *fm = NSFileManager.defaultManager;
     NSArray *keys = @[ NSURLIsDirectoryKey, NSURLFileSizeKey, NSURLContentModificationDateKey ];
-    NSArray<NSURL *> *urls = [fm contentsOfDirectoryAtURL:directory
-                               includingPropertiesForKeys:keys
-                                                  options:NSDirectoryEnumerationSkipsHiddenFiles
-                                                    error:nil];
+    NSArray<NSURL *> *urls = [fm contentsOfDirectoryAtURL:directory includingPropertiesForKeys:keys options:0 error:nil];
     BOOL isRoot = [directory.URLByResolvingSymlinksInPath.path isEqualToString:AMUI.documentsURL.URLByResolvingSymlinksInPath.path];
     NSMutableArray<AMFileItem *> *items = [NSMutableArray arrayWithCapacity:urls.count];
     for (NSURL *u in urls) {
+        NSString *raw = u.lastPathComponent;
+        if ([raw hasPrefix:@"."]) {
+            // iCloud Drive keeps not-yet-downloaded files as ".<name>.icloud".
+            if ([raw hasSuffix:@".icloud"] && raw.length > 8) {
+                NSString *name = [raw substringWithRange:NSMakeRange(1, raw.length - 8)];
+                AMFileItem *p = [AMFileItem new];
+                p.url = [directory URLByAppendingPathComponent:name];
+                p.name = name;
+                p.isCloudPlaceholder = YES;
+                p.kind = [self kindForFileName:name];
+                p.modified = [u resourceValuesForKeys:keys error:nil][NSURLContentModificationDateKey];
+                [items addObject:p];
+            }
+            continue;
+        }
         NSDictionary *v = [u resourceValuesForKeys:keys error:nil];
         AMFileItem *i = [AMFileItem new];
         i.url = u;
@@ -104,6 +117,7 @@
 }
 
 - (NSString *)subtitle {
+    if (self.isCloudPlaceholder) return L(@"在 iCloud 中 · 轻点下载");
     NSString *date = self.modified ? [AMUI dateString:self.modified] : @"";
     if (self.isDirectory) {
         NSString *count = self.childCount == 0 ? L(@"空") : [NSString stringWithFormat:L(@"%ld 项"), (long)self.childCount];
@@ -116,6 +130,7 @@
 }
 
 - (BOOL)wantsThumbnail {
+    if (self.isCloudPlaceholder) return NO;
     return self.kind == AMFileKindImage || self.kind == AMFileKindVideo || self.kind == AMFileKindPDF;
 }
 

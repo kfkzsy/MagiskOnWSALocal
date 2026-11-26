@@ -550,6 +550,48 @@ static UITableViewCell *AMPlainCell(void) {
     return cell;
 }
 
++ (UITableViewCell *)stepperCellWithTitle:(NSString *)title value:(NSInteger)value min:(NSInteger)min max:(NSInteger)max
+                                   format:(NSString *(^)(NSInteger))format handler:(void (^)(NSInteger))handler {
+    UITableViewCell *cell = AMPlainCell();
+    UILabel *label = AMBodyLabel(title);
+    UILabel *valueLabel = [UILabel new];
+    valueLabel.font = [[UIFontMetrics metricsForTextStyle:UIFontTextStyleBody] scaledFontForFont:[UIFont monospacedDigitSystemFontOfSize:17 weight:UIFontWeightRegular]];
+    valueLabel.adjustsFontForContentSizeCategory = YES;
+    valueLabel.textColor = UIColor.secondaryLabelColor;
+    valueLabel.text = format(value);
+    valueLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    UIStepper *stepper = [UIStepper new];
+    stepper.minimumValue = min;
+    stepper.maximumValue = max;
+    stepper.value = value;
+    stepper.translatesAutoresizingMaskIntoConstraints = NO;
+    stepper.accessibilityLabel = title;
+    __weak UIStepper *weakStepper = stepper;
+    __weak UILabel *weakValue = valueLabel;
+    [stepper addAction:[UIAction actionWithHandler:^(__kindof UIAction *a) {
+                 NSInteger v = (NSInteger)weakStepper.value;
+                 weakValue.text = format(v);
+                 handler(v);
+             }]
+        forControlEvents:UIControlEventValueChanged];
+    [cell.contentView addSubview:label];
+    [cell.contentView addSubview:valueLabel];
+    [cell.contentView addSubview:stepper];
+    UILayoutGuide *m = cell.contentView.layoutMarginsGuide;
+    [NSLayoutConstraint activateConstraints:@[
+        [label.leadingAnchor constraintEqualToAnchor:m.leadingAnchor],
+        [label.centerYAnchor constraintEqualToAnchor:cell.contentView.centerYAnchor],
+        [label.topAnchor constraintGreaterThanOrEqualToAnchor:m.topAnchor],
+        [label.bottomAnchor constraintLessThanOrEqualToAnchor:m.bottomAnchor],
+        [stepper.trailingAnchor constraintEqualToAnchor:m.trailingAnchor],
+        [stepper.centerYAnchor constraintEqualToAnchor:cell.contentView.centerYAnchor],
+        [valueLabel.trailingAnchor constraintEqualToAnchor:stepper.leadingAnchor constant:-12],
+        [valueLabel.centerYAnchor constraintEqualToAnchor:cell.contentView.centerYAnchor],
+        [valueLabel.leadingAnchor constraintGreaterThanOrEqualToAnchor:label.trailingAnchor constant:8],
+    ]];
+    return cell;
+}
+
 + (UITableViewCell *)menuCellWithTitle:(NSString *)title buttonTitle:(NSString *)buttonTitle menu:(UIMenu *)menu {
     UITableViewCell *cell = AMPlainCell();
     UILabel *label = AMBodyLabel(title);

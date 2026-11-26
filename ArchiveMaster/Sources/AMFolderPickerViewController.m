@@ -2,6 +2,7 @@
 #import "AMArchiver.h"
 #import "AMFileItem.h"
 #import "AMMediaCompressor.h"
+#import "AMStorage.h"
 #import "AMUI.h"
 #import <AVFoundation/AVFoundation.h>
 #import <ImageIO/ImageIO.h>
@@ -23,7 +24,12 @@
 }
 
 + (void)presentFrom:(UIViewController *)vc title:(NSString *)title actionTitle:(NSString *)actionTitle excluded:(NSArray<NSURL *> *)excluded onPick:(void (^)(NSURL *))onPick {
-    AMFolderPickerViewController *root = [[AMFolderPickerViewController alloc] initWithDirectory:AMUI.documentsURL actionTitle:actionTitle excluded:excluded onPick:onPick];
+    NSURL *start = AMStorage.saveFolder;
+    if (!start) {  // no save location yet: go straight to the system folder picker
+        [AMStorage pickFolderFrom:vc completion:^(NSURL *folder) { if (folder) onPick(folder); }];
+        return;
+    }
+    AMFolderPickerViewController *root = [[AMFolderPickerViewController alloc] initWithDirectory:start actionTitle:actionTitle excluded:excluded onPick:onPick];
     root.navigationItem.prompt = title;
     UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:root];
     nav.modalPresentationStyle = UIModalPresentationFormSheet;
@@ -49,8 +55,8 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    BOOL root = [self.directory.URLByResolvingSymlinksInPath.path isEqualToString:AMUI.documentsURL.URLByResolvingSymlinksInPath.path];
-    self.title = root ? L(@"文件") : self.directory.lastPathComponent;
+    BOOL root = AMStorage.saveFolder && [self.directory.URLByResolvingSymlinksInPath.path isEqualToString:AMStorage.saveFolder.URLByResolvingSymlinksInPath.path];
+    self.title = root ? AMStorage.saveFolderName : self.directory.lastPathComponent;
     [self.tableView registerClass:UITableViewCell.class forCellReuseIdentifier:@"folder"];
     __weak typeof(self) weak = self;
     self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemCancel primaryAction:[UIAction actionWithHandler:^(__kindof UIAction *a) {
@@ -61,7 +67,8 @@
     UIBarButtonItem *pick = [[UIBarButtonItem alloc] initWithTitle:self.actionTitle style:UIBarButtonItemStyleDone target:self action:@selector(pickHere)];
     pick.enabled = ![self isExcluded:self.directory];
     UIBarButtonItem *flex = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace target:nil action:nil];
-    self.toolbarItems = @[ newFolder, flex, pick ];
+    UIBarButtonItem *elsewhere = [[UIBarButtonItem alloc] initWithTitle:L(@"其他位置…") style:UIBarButtonItemStylePlain target:self action:@selector(pickElsewhere)];
+    self.toolbarItems = @[ newFolder, elsewhere, flex, pick ];
     [self reload];
 }
 
@@ -83,6 +90,16 @@
     NSURL *dir = self.directory;
     [self.navigationController dismissViewControllerAnimated:YES completion:^{
         if (cb) cb(dir);
+    }];
+}
+
+/// Any folder in the Files app (iCloud Drive, other apps, external drives).
+- (void)pickElsewhere {
+    void (^cb)(NSURL *) = self.onPick;
+    UINavigationController *nav = self.navigationController;
+    [AMStorage pickFolderFrom:self completion:^(NSURL *folder) {
+        if (!folder) return;
+        [nav dismissViewControllerAnimated:YES completion:^{ if (cb) cb(folder); }];
     }];
 }
 
@@ -188,10 +205,10 @@ static NSString *AMFullDate(NSDate *d) {
         NSString *bytes = [NSNumberFormatter localizedStringFromNumber:@(size) numberStyle:NSNumberFormatterDecimalStyle];
         [self add:L(@"大小") value:[NSString stringWithFormat:L(@"%@（%@ 字节）"), [AMUI byteString:size], bytes]];
     }
-    NSString *docs = AMUI.documentsURL.URLByResolvingSymlinksInPath.path;
+    NSString *docs = (AMStorage.saveFolder ?: AMUI.documentsURL).URLByResolvingSymlinksInPath.path;
     NSString *parent = url.URLByDeletingLastPathComponent.URLByResolvingSymlinksInPath.path;
     NSString *rel = [parent hasPrefix:docs] ? [parent substringFromIndex:docs.length] : parent;
-    NSMutableArray *crumbs = [NSMutableArray arrayWithObject:L(@"文件")];
+    NSMutableArray *crumbs = [NSMutableArray arrayWithObject:AMStorage.saveFolderName];
     for (NSString *c in rel.pathComponents) if (![c isEqualToString:@"/"]) [crumbs addObject:c];
     [self add:L(@"位置") value:[crumbs componentsJoinedByString:@" › "]];
     [self add:L(@"创建时间") value:AMFullDate(v[NSURLCreationDateKey])];
