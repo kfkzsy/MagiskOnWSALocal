@@ -1,5 +1,6 @@
 #import "AMUI.h"
 #import <objc/message.h>
+#import <objc/runtime.h>
 
 NSString *const AMDefaultsFormat = @"AMDefaultFormat";
 NSString *const AMDefaultsLevel = @"AMDefaultLevel";
@@ -305,10 +306,14 @@ static NSInteger AMActiveOperations = 0;
     Class glass = NSClassFromString(@"UIGlassEffect");
     SEL make = NSSelectorFromString(@"effectWithStyle:");
     if (glass && [glass respondsToSelector:make]) {
-        UIVisualEffect *(*send)(id, SEL, NSInteger) = (void *)objc_msgSend;
-        UIVisualEffect *effect = send(glass, make, 0 /* UIGlassEffectStyleRegular */);
-        if (interactive && [effect respondsToSelector:NSSelectorFromString(@"setInteractive:")]) [effect setValue:@YES forKey:@"interactive"];
-        if (effect) return effect;
+        @try {
+            UIVisualEffect *(*send)(id, SEL, NSInteger) = (void *)objc_msgSend;
+            UIVisualEffect *effect = send(glass, make, 0 /* UIGlassEffectStyleRegular */);
+            if (interactive && [effect respondsToSelector:NSSelectorFromString(@"setInteractive:")]) [effect setValue:@YES forKey:@"interactive"];
+            if (effect) return effect;
+        } @catch (NSException *e) {
+            // Newer-system API used at runtime: never let it take the app down.
+        }
     }
     return [UIBlurEffect effectWithStyle:fallback];
 }
@@ -316,8 +321,12 @@ static NSInteger AMActiveOperations = 0;
 static UIButtonConfiguration *AMButtonConfiguration(NSString *selectorName) {
     SEL sel = NSSelectorFromString(selectorName);
     if (![UIButtonConfiguration respondsToSelector:sel]) return nil;
-    UIButtonConfiguration *(*send)(id, SEL) = (void *)objc_msgSend;
-    return send(UIButtonConfiguration.class, sel);
+    @try {
+        UIButtonConfiguration *(*send)(id, SEL) = (void *)objc_msgSend;
+        return send(UIButtonConfiguration.class, sel);
+    } @catch (NSException *e) {
+        return nil;
+    }
 }
 
 + (UIButtonConfiguration *)prominentButtonConfiguration {
@@ -341,24 +350,38 @@ static UIButtonConfiguration *AMButtonConfiguration(NSString *selectorName) {
 }
 
 + (void)configureTabBarController:(UITabBarController *)tabs {
-    if ([tabs respondsToSelector:NSSelectorFromString(@"setTabBarMinimizeBehavior:")])
+    if (UIDevice.currentDevice.userInterfaceIdiom != UIUserInterfaceIdiomPhone) return;  // the behaviour is iPhone-only
+    if (![tabs respondsToSelector:NSSelectorFromString(@"setTabBarMinimizeBehavior:")]) return;
+    @try {
         [tabs setValue:@2 /* UITabBarMinimizeBehaviorOnScrollDown */ forKey:@"tabBarMinimizeBehavior"];
+    } @catch (NSException *e) {
+    }
 }
 
 + (BOOL)setSubtitle:(NSString *)subtitle forNavigationItem:(UINavigationItem *)item {
     if (![item respondsToSelector:NSSelectorFromString(@"setSubtitle:")]) return NO;
-    [item setValue:subtitle forKey:@"subtitle"];
+    @try {
+        [item setValue:subtitle forKey:@"subtitle"];
+    } @catch (NSException *e) {
+        return NO;
+    }
     return YES;
 }
+
+static char kReadableMarginKey;
 
 + (void)applyReadableMarginsToTableView:(UITableView *)tableView {
     CGFloat width = tableView.bounds.size.width;
     if (width <= 0) return;
     const CGFloat maxContent = 700;
-    CGFloat side = width >= maxContent + 80 ? floor((width - maxContent) / 2) : (width > 400 ? 20 : 16);
-    NSDirectionalEdgeInsets m = tableView.directionalLayoutMargins;
-    if (fabs(m.leading - side) < 0.5 && fabs(m.trailing - side) < 0.5) return;
-    tableView.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(m.top, side, m.bottom, side);
+    // Wide: centre the forms. Otherwise 0, which leaves the system's standard margins in charge.
+    CGFloat side = width >= maxContent + 80 ? floor((width - maxContent) / 2) : 0;
+    // Compare with the value *we* last set. The getter reports the effective margins (safe area and
+    // system minimum included), so comparing against it never matches and re-lays out forever.
+    NSNumber *last = objc_getAssociatedObject(tableView, &kReadableMarginKey);
+    if (last ? fabs(last.doubleValue - side) < 0.5 : side == 0) return;
+    objc_setAssociatedObject(tableView, &kReadableMarginKey, @(side), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    tableView.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(0, side, 0, side);
 }
 
 + (UIImage *)symbol:(NSString *)name {

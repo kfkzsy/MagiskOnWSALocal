@@ -387,3 +387,9 @@
 "未选择" = "Not Chosen";
 "保存位置：%@" = "Save location: %@";
 "为节省 iPhone 空间，解压大师不在 App 内保存文件。请选择一个文件夹（例如“我的 iPhone”中的“下载”），解压和压缩的结果会直接存到那里。" = "To save space on your iPhone, ArchiveMaster doesn’t keep files inside the app. Choose a folder (for example Downloads on your iPhone); extracted and compressed results will be saved there.";
+"解压大师上次意外退出" = "ArchiveMaster Quit Unexpectedly";
+"已记录错误原因。把报告发给开发者可以帮助尽快修复。" = "The cause was recorded. Sending the report to the developer helps get it fixed quickly.";
+"分享报告" = "Share Report";
+"拷贝报告" = "Copy Report";
+"不用了" = "No Thanks";
+"已拷贝" = "Copied";

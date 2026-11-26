@@ -1,5 +1,6 @@
 #import "AMAppDelegate.h"
 #import "AMArchiveCore.h"
+#import "AMCrashReporter.h"
 #import "AMArchiver.h"
 #import "AMFileBrowserViewController.h"
 #import "AMFilesSplitViewController.h"
@@ -12,6 +13,7 @@
 @implementation AMAppDelegate
 
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
+    [AMCrashReporter install];
     am_init();
     [NSUserDefaults.standardUserDefaults registerDefaults:@{
         AMDefaultsFormat : @(AM_FMT_ZIP),
@@ -37,8 +39,10 @@
             [u getResourceValue:&created forKey:NSURLCreationDateKey error:nil];
             if (!created || -created.timeIntervalSinceNow > 3600) [NSFileManager.defaultManager removeItemAtURL:u error:nil];
         }
-        // Half-written outputs in the save location (top level only; it can be large).
-        for (NSURL *u in [NSFileManager.defaultManager contentsOfDirectoryAtURL:saveFolder includingPropertiesForKeys:nil options:0 error:nil]) {
+        // Half-written outputs in the save location (top level only; it can be large). There is no save
+        // location until the user picks one, and Foundation must never be handed a nil URL here.
+        NSArray<NSURL *> *saved = saveFolder ? [NSFileManager.defaultManager contentsOfDirectoryAtURL:saveFolder includingPropertiesForKeys:nil options:0 error:nil] : nil;
+        for (NSURL *u in saved) {
             NSString *n = u.lastPathComponent;
             if ([n hasPrefix:@".extracting-"] || [n hasPrefix:@".creating-"]) [NSFileManager.defaultManager removeItemAtURL:u error:nil];
         }
@@ -107,12 +111,20 @@
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(revealNotification:) name:AMRevealInFilesNotification object:nil];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(compressMediaNotification:) name:AMCompressMediaNotification object:nil];
 
-    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(offerLegacyMigration) name:AMSaveFolderDidChangeNotification object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(saveFolderDidChange) name:AMSaveFolderDidChangeNotification object:nil];
 
     NSSet<UIOpenURLContext *> *contexts = connectionOptions.URLContexts;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if ([AMCrashReporter presentPendingReportFrom:self.tabs]) return;  // first: let the user send what went wrong
         if (contexts.count) [self handleURLContexts:contexts];
         else [self offerLegacyMigration];
+    });
+}
+
+- (void)saveFolderDidChange {
+    // Give the folder picker time to finish dismissing before asking about old files.
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [self offerLegacyMigration];
     });
 }
 

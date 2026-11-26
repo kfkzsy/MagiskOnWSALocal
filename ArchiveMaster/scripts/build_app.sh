@@ -37,7 +37,7 @@ clang -target "arm64-apple-ios$MIN_IOS" -isysroot "$SDK" -fuse-ld=lld -fobjc-arc
   -framework UniformTypeIdentifiers -framework ImageIO -framework AVFoundation -framework CoreMedia \
   -framework CoreLocation -framework Security \
   -Wl,-platform_version,ios,"$MIN_IOS","$LINK_SDK" -Wl,-dead_strip -Wl,-adhoc_codesign -o "$BIN"
-llvm-strip -x "$BIN" 2>/dev/null || true
+# Local symbols are kept on purpose: the in-app crash report then shows function names.
 
 # Bundle resources: binary Info.plist, PkgInfo, icons, localizations (zh-Hans is the development language).
 python3 -I "$ROOT/scripts/l10n_check.py" check "$ROOT/Resources/en.lproj/Localizable.strings" "$ROOT"/Sources/*.m
