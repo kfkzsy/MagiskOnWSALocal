@@ -8,6 +8,10 @@ WORK="${WORK:-$ROOT/.build}"
 SDK="${SDK:-$WORK/iPhoneOS16.5.sdk}"
 DEPS="${DEPS:-$WORK/deps}"
 MIN_IOS=15.0
+# The linked-SDK version recorded in the binary. iPhone Duo only lets apps linked against the
+# iOS 27.1 SDK fill its inner display (older ones are letterboxed), and iOS 26+ applies the
+# Liquid Glass design to apps linked against SDK 26 or later.
+LINK_SDK="${LINK_SDK:-27.1}"
 APP=ArchiveMaster
 OBJ="$WORK/obj"; STAGE="$WORK/stage"; DIST="$ROOT/dist"
 LLVM_BIN="$(dirname "$(readlink -f "$(command -v clang)")")"
@@ -32,7 +36,7 @@ clang -target "arm64-apple-ios$MIN_IOS" -isysroot "$SDK" -fuse-ld=lld -fobjc-arc
   -framework QuickLook -framework QuickLookThumbnailing -framework Photos -framework PhotosUI \
   -framework UniformTypeIdentifiers -framework ImageIO -framework AVFoundation -framework CoreMedia \
   -framework CoreLocation -framework Security \
-  -Wl,-dead_strip -Wl,-adhoc_codesign -o "$BIN"
+  -Wl,-platform_version,ios,"$MIN_IOS","$LINK_SDK" -Wl,-dead_strip -Wl,-adhoc_codesign -o "$BIN"
 llvm-strip -x "$BIN" 2>/dev/null || true
 
 # Bundle resources: binary Info.plist, PkgInfo, icons, localizations (zh-Hans is the development language).

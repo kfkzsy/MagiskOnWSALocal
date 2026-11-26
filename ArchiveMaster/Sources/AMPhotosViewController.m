@@ -115,6 +115,11 @@ static float AMLogPosition(long long v, long long lo, long long hi) {
 
 @implementation AMPhotosViewController
 
+- (void)viewWillLayoutSubviews {
+    [super viewWillLayoutSubviews];
+    [AMUI applyReadableMarginsToTableView:self.tableView];
+}
+
 - (instancetype)init {
     if ((self = [super initWithStyle:UITableViewStyleInsetGrouped])) {
         _assets = @[];
@@ -182,14 +187,12 @@ static float AMLogPosition(long long v, long long lo, long long hi) {
 #pragma mark - Building
 
 - (UIButton *)filledButton:(NSString *)title symbol:(NSString *)symbol action:(SEL)action {
-    UIButtonConfiguration *c = [UIButtonConfiguration filledButtonConfiguration];
+    UIButtonConfiguration *c = AMUI.prominentButtonConfiguration;
     c.title = title;
     if (symbol) {
         c.image = [UIImage systemImageNamed:symbol];
         c.imagePadding = 8;
     }
-    c.buttonSize = UIButtonConfigurationSizeLarge;
-    c.cornerStyle = UIButtonConfigurationCornerStyleLarge;
     UIButton *b = [UIButton buttonWithConfiguration:c primaryAction:nil];
     [b addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
     b.translatesAutoresizingMaskIntoConstraints = NO;
@@ -260,8 +263,8 @@ static float AMLogPosition(long long v, long long lo, long long hi) {
     [h addSubview:self.headerLabel];
     [h addSubview:self.strip];
     [NSLayoutConstraint activateConstraints:@[
-        [self.headerLabel.leadingAnchor constraintEqualToAnchor:h.leadingAnchor constant:20],
-        [self.headerLabel.trailingAnchor constraintEqualToAnchor:h.trailingAnchor constant:-20],
+        [self.headerLabel.leadingAnchor constraintEqualToAnchor:h.readableContentGuide.leadingAnchor],
+        [self.headerLabel.trailingAnchor constraintEqualToAnchor:h.readableContentGuide.trailingAnchor],
         [self.headerLabel.topAnchor constraintEqualToAnchor:h.topAnchor constant:8],
         [self.strip.leadingAnchor constraintEqualToAnchor:h.leadingAnchor],
         [self.strip.trailingAnchor constraintEqualToAnchor:h.trailingAnchor],

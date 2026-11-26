@@ -39,6 +39,11 @@ static NSInteger AMLevelIndex(NSInteger level) {
 
 @implementation AMCompressViewController
 
+- (void)viewWillLayoutSubviews {
+    [super viewWillLayoutSubviews];
+    [AMUI applyReadableMarginsToTableView:self.tableView];
+}
+
 - (instancetype)initWithItems:(NSArray<NSURL *> *)items suggestedName:(NSString *)name {
     if ((self = [super initWithStyle:UITableViewStyleInsetGrouped])) {
         _items = [items copy];

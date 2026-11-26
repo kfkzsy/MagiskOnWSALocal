@@ -3,6 +3,8 @@
 #import "AMArchiveContentsViewController.h"
 #import "AMArchiver.h"
 #import "AMFileItem.h"
+#import "AMFilesSplitViewController.h"
+#import "AMQuickLook.h"
 #import "AMFolderPickerViewController.h"
 #import "AMUI.h"
 #import <PhotosUI/PhotosUI.h>
@@ -63,6 +65,16 @@ static NSCache<NSString *, UIImage *> *AMThumbCache(void) {
 
 - (void)dealloc {
     if (_source) dispatch_source_cancel(_source);
+}
+
+- (AMFilesSplitViewController *)filesSplit {
+    UISplitViewController *s = self.splitViewController;
+    return [s isKindOfClass:AMFilesSplitViewController.class] ? (AMFilesSplitViewController *)s : nil;
+}
+
+/// List and detail side by side (iPhone Duo unfolded, iPad): files open in the detail column.
+- (BOOL)isWide {
+    return self.filesSplit.showsDetailColumn;
 }
 
 - (BOOL)isRoot {
@@ -263,8 +275,11 @@ static NSCache<NSString *, UIImage *> *AMThumbCache(void) {
     NSDictionary *v = [self.directory resourceValuesForKeys:@[ NSURLVolumeAvailableCapacityForImportantUsageKey ] error:nil];
     NSNumber *free = v[NSURLVolumeAvailableCapacityForImportantUsageKey];
     NSString *count = [NSString stringWithFormat:L(@"%lu 个项目"), (unsigned long)self.allItems.count];
-    self.footerLabel.text = free ? [NSString stringWithFormat:L(@"%@，可用 %@"), count, [AMUI byteString:free.longLongValue]] : count;
-    self.footerLabel.hidden = self.items.count == 0;
+    NSString *summary = free ? [NSString stringWithFormat:L(@"%@，可用 %@"), count, [AMUI byteString:free.longLongValue]] : count;
+    self.footerLabel.text = summary;
+    // iOS 26: show the summary as the navigation subtitle instead of a table footer.
+    BOOL subtitle = !self.isEditing && [AMUI setSubtitle:summary forNavigationItem:self.navigationItem];
+    self.footerLabel.hidden = subtitle || self.items.count == 0;
 }
 
 - (void)startMonitoring {
@@ -387,12 +402,14 @@ static NSCache<NSString *, UIImage *> *AMThumbCache(void) {
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     if (tableView.isEditing) { [self updateToolbar]; return; }
-    [tableView deselectRowAtIndexPath:indexPath animated:YES];
     AMFileItem *item = self.items[(NSUInteger)indexPath.row];
+    // In the two-column layout the row stays selected to show what the detail column displays.
+    if (item.isDirectory || !self.isWide) [tableView deselectRowAtIndexPath:indexPath animated:YES];
     if (item.isDirectory) {
         [self.navigationController pushViewController:[[AMFileBrowserViewController alloc] initWithDirectory:item.url] animated:YES];
     } else if (item.kind == AMFileKindArchive) {
-        [self showArchiveActionsForItem:item sourceView:[tableView cellForRowAtIndexPath:indexPath]];
+        if (self.isWide) [self showContentsOfItem:item];
+        else [self showArchiveActionsForItem:item sourceView:[tableView cellForRowAtIndexPath:indexPath]];
     } else {
         [self previewItem:item];
     }
@@ -519,7 +536,12 @@ static NSCache<NSString *, UIImage *> *AMThumbCache(void) {
 #pragma mark - Editing / selection
 
 - (void)setEditing:(BOOL)editing animated:(BOOL)animated {
+    // Drop the "currently previewed" highlight so it doesn't turn into a checked row.
+    if (editing && !self.isEditing)
+        for (NSIndexPath *ip in self.tableView.indexPathsForSelectedRows) [self.tableView deselectRowAtIndexPath:ip animated:NO];
     [super setEditing:editing animated:animated];
+    if (editing) [AMUI setSubtitle:nil forNavigationItem:self.navigationItem];
+    else [self updateFooter];
     [self.navigationController setToolbarHidden:!editing animated:animated];
     self.navigationItem.hidesBackButton = editing;
     self.navigationItem.leftBarButtonItem = editing ? self.selectAllItem : nil;
@@ -624,6 +646,7 @@ static NSCache<NSString *, UIImage *> *AMThumbCache(void) {
         typeof(self) strong = weak;
         if (!strong) return;
         NSFileManager *fm = NSFileManager.defaultManager;
+        [strong.filesSplit clearDetailIfShowingAnyOf:urls];
         NSInteger moved = 0;
         NSError *error = nil;
         for (NSURL *u in urls) {
@@ -725,7 +748,8 @@ static NSCache<NSString *, UIImage *> *AMThumbCache(void) {
     AMArchiveContentsViewController *vc = [[AMArchiveContentsViewController alloc] initWithArchive:item.url destination:self.directory];
     __weak typeof(self) weak = self;
     vc.onExtracted = ^(NSURL *result) { [weak revealItemAtURL:result]; };
-    [self.navigationController pushViewController:vc animated:YES];
+    if (self.isWide) [self.filesSplit showDetail:vc forURL:item.url];
+    else [self.navigationController pushViewController:vc animated:YES];
 }
 
 - (void)compressURLs:(NSArray<NSURL *> *)urls {
@@ -746,6 +770,12 @@ static NSCache<NSString *, UIImage *> *AMThumbCache(void) {
         if (i.isDirectory) continue;
         if ([i.url isEqual:item.url]) index = (NSInteger)urls.count;
         [urls addObject:i.url];
+    }
+    if (self.isWide) {
+        NSMutableArray *items = [NSMutableArray array];
+        for (NSURL *u in urls) [items addObject:[AMPreviewItem itemWithURL:u title:u.lastPathComponent]];
+        [self.filesSplit showDetail:[[AMQuickLook alloc] initWithItems:items index:index] forURL:item.url];
+        return;
     }
     self.previewURLs = urls;
     QLPreviewController *ql = [QLPreviewController new];
@@ -779,6 +809,7 @@ static NSCache<NSString *, UIImage *> *AMThumbCache(void) {
             [AMUI showMessage:[NSString stringWithFormat:L(@"已存在名为“%@”的项目。"), name] title:L(@"无法重新命名") from:strong];
             return;
         }
+        [strong.filesSplit clearDetailIfShowingAnyOf:@[ item.url ]];
         if (![NSFileManager.defaultManager moveItemAtURL:item.url toURL:dest error:&error]) {
             [AMUI showError:error title:L(@"无法重新命名") from:strong];
             return;
@@ -809,6 +840,7 @@ static NSCache<NSString *, UIImage *> *AMThumbCache(void) {
         typeof(self) strong = weak;
         if (!strong) return;
         NSError *error = nil;
+        [strong.filesSplit clearDetailIfShowingAnyOf:urls];
         for (NSURL *u in urls) {
             if (![NSFileManager.defaultManager removeItemAtURL:u error:&error]) break;
         }

@@ -1,4 +1,5 @@
 #import "AMUI.h"
+#import <objc/message.h>
 
 NSString *const AMDefaultsFormat = @"AMDefaultFormat";
 NSString *const AMDefaultsLevel = @"AMDefaultLevel";
@@ -195,11 +196,11 @@ static NSInteger AMActiveOperations = 0;
     if (!window) return;
     [[window viewWithTag:kToastTag] removeFromSuperview];
 
-    UIVisualEffectView *bg = [[UIVisualEffectView alloc] initWithEffect:[UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemChromeMaterial]];
+    UIVisualEffectView *bg = [[UIVisualEffectView alloc] initWithEffect:[self glassEffectWithFallback:UIBlurEffectStyleSystemChromeMaterial interactive:NO]];
     bg.tag = kToastTag;
     bg.translatesAutoresizingMaskIntoConstraints = NO;
     bg.layer.cornerCurve = kCACornerCurveContinuous;
-    bg.clipsToBounds = YES;
+    bg.clipsToBounds = !self.hasLiquidGlass;
     bg.layer.cornerRadius = 22;
     bg.isAccessibilityElement = YES;
     bg.accessibilityLabel = text;
@@ -289,6 +290,75 @@ static NSInteger AMActiveOperations = 0;
     if (bytes < MB) return MAX(10 * KB, (bytes + 5 * KB) / (10 * KB) * (10 * KB));
     long long tenth = MB / 10;
     return (bytes + tenth / 2) / tenth * tenth;
+}
+
+#pragma mark - Liquid Glass
+
++ (BOOL)hasLiquidGlass {
+    static BOOL has;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ has = NSClassFromString(@"UIGlassEffect") != nil; });
+    return has;
+}
+
++ (UIVisualEffect *)glassEffectWithFallback:(UIBlurEffectStyle)fallback interactive:(BOOL)interactive {
+    Class glass = NSClassFromString(@"UIGlassEffect");
+    SEL make = NSSelectorFromString(@"effectWithStyle:");
+    if (glass && [glass respondsToSelector:make]) {
+        UIVisualEffect *(*send)(id, SEL, NSInteger) = (void *)objc_msgSend;
+        UIVisualEffect *effect = send(glass, make, 0 /* UIGlassEffectStyleRegular */);
+        if (interactive && [effect respondsToSelector:NSSelectorFromString(@"setInteractive:")]) [effect setValue:@YES forKey:@"interactive"];
+        if (effect) return effect;
+    }
+    return [UIBlurEffect effectWithStyle:fallback];
+}
+
+static UIButtonConfiguration *AMButtonConfiguration(NSString *selectorName) {
+    SEL sel = NSSelectorFromString(selectorName);
+    if (![UIButtonConfiguration respondsToSelector:sel]) return nil;
+    UIButtonConfiguration *(*send)(id, SEL) = (void *)objc_msgSend;
+    return send(UIButtonConfiguration.class, sel);
+}
+
++ (UIButtonConfiguration *)prominentButtonConfiguration {
+    UIButtonConfiguration *c = AMButtonConfiguration(@"prominentGlassButtonConfiguration");
+    if (!c) {
+        c = [UIButtonConfiguration filledButtonConfiguration];
+        c.cornerStyle = UIButtonConfigurationCornerStyleCapsule;
+    }
+    c.buttonSize = UIButtonConfigurationSizeLarge;
+    return c;
+}
+
++ (UIButtonConfiguration *)secondaryButtonConfiguration {
+    UIButtonConfiguration *c = AMButtonConfiguration(@"glassButtonConfiguration");
+    if (!c) {
+        c = [UIButtonConfiguration grayButtonConfiguration];
+        c.cornerStyle = UIButtonConfigurationCornerStyleCapsule;
+    }
+    c.buttonSize = UIButtonConfigurationSizeLarge;
+    return c;
+}
+
++ (void)configureTabBarController:(UITabBarController *)tabs {
+    if ([tabs respondsToSelector:NSSelectorFromString(@"setTabBarMinimizeBehavior:")])
+        [tabs setValue:@2 /* UITabBarMinimizeBehaviorOnScrollDown */ forKey:@"tabBarMinimizeBehavior"];
+}
+
++ (BOOL)setSubtitle:(NSString *)subtitle forNavigationItem:(UINavigationItem *)item {
+    if (![item respondsToSelector:NSSelectorFromString(@"setSubtitle:")]) return NO;
+    [item setValue:subtitle forKey:@"subtitle"];
+    return YES;
+}
+
++ (void)applyReadableMarginsToTableView:(UITableView *)tableView {
+    CGFloat width = tableView.bounds.size.width;
+    if (width <= 0) return;
+    const CGFloat maxContent = 700;
+    CGFloat side = width >= maxContent + 80 ? floor((width - maxContent) / 2) : (width > 400 ? 20 : 16);
+    NSDirectionalEdgeInsets m = tableView.directionalLayoutMargins;
+    if (fabs(m.leading - side) < 0.5 && fabs(m.trailing - side) < 0.5) return;
+    tableView.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(m.top, side, m.bottom, side);
 }
 
 + (UIImage *)symbol:(NSString *)name {

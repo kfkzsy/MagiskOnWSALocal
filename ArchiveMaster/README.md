@@ -6,6 +6,8 @@
 
 ## 功能
 
+**iPhone Duo 与 iOS 26 设计**：App 以 iOS 27.1 SDK 版本链接，在 iPhone Duo 展开的内屏上全屏显示（不再是居中的小窗口和黑边）；展开时“文件”页变为左右两栏（左侧文件列表，右侧预览或压缩包内容），合上后自动回到单栏。在 iOS 26 及以上使用 Liquid Glass 设计：玻璃质感的标签栏（滚动时自动收起）、导航栏、进度卡片、提示条和按钮；表单页在宽屏上保持合适的阅读宽度。iOS 15–25 上自动使用对应的旧样式。
+
 **界面语言**：简体中文（默认），另附英文。系统弹出的选择器、分享面板等也会跟随显示中文；可以在系统“设置 › 解压大师 › 语言”中切换。
 
 | 页面 | 功能 |
@@ -41,7 +43,7 @@ IPA 没有用开发者证书签名（只有链接器生成的 ad-hoc 签名）�
 
 ## 从源码构建（Linux）
 
-不需要 Mac 或 Xcode：用 clang + lld 和 Theos 项目发布的 iOS 16.5 SDK 交叉编译。
+不需要 Mac 或 Xcode：用 clang + lld 和 Theos 项目发布的 iOS 16.5 SDK 头文件交叉编译，链接时把 SDK 版本记录为 27.1（`LINK_SDK`，见 `scripts/build_app.sh`），这样 iPhone Duo 会全屏运行、iOS 26 会启用 Liquid Glass。iOS 26/27 的新接口（如 `UIGlassEffect`）在运行时按需调用，旧系统上自动退回原样式。
 
 ```bash
 cd ArchiveMaster
@@ -59,7 +61,7 @@ cd ArchiveMaster
 LIBARCHIVE_PREFIX=<本机构建的 libarchive 安装目录> LIBARCHIVE_SRC=<libarchive 源码目录> ./tests/run_host_tests.sh
 ```
 
-测试覆盖：10 种打包格式和 5 种单文件格式的压缩→解压往返校验、ZIP AES-256 / ZipCrypto 的“需要密码 / 密码错误 / 密码正确”、密码本（多个候选密码）、只解压选中项、取消、非压缩包识别、GBK 文件名自动识别、RAR4/RAR5/7z/CAB/LZH 样本解压、RAR 分卷与 7z 拆分卷解压、加密 RAR/7z 的提示。
+测试覆盖：10 种打包格式和 5 种单文件格式的压缩→解压往返校验、ZIP AES-256 / ZipCrypto 的“需要密码 / 密码错误 / 密码正确”、密码本（多个候选密码）、只解压选中项、ZipCrypto 错误密码 1000 次压力测试、取消、非压缩包识别、GBK 文件名自动识别、RAR4/RAR5/7z/CAB/LZH 样本解压、RAR 分卷与 7z 拆分卷解压、加密 RAR/7z 的提示。
 
 ## 代码结构
 
@@ -70,6 +72,7 @@ Sources/
   AMMediaCompressor.[hm]  图片按字节预算压缩（先降画质再降分辨率）、视频转码
   AMActions.[hm]          通用流程：进度卡片、密码本与密码输入、批量解压、相册导入
   AMPasswordBook.[hm]     密码本（钥匙串）
+  AMFilesSplitViewController      “文件”页容器：宽屏两栏（列表 + 预览），窄屏单栏
   AMFileBrowserViewController     “文件”页
   AMArchiveContentsViewController 压缩包内容（预览单个文件、只解压所选）
   AMPhotosViewController          “相册”页（压缩图片 / 打包）

@@ -2,6 +2,7 @@
 #import "AMArchiveCore.h"
 #import "AMArchiver.h"
 #import "AMFileBrowserViewController.h"
+#import "AMFilesSplitViewController.h"
 #import "AMPhotosViewController.h"
 #import "AMSettingsViewController.h"
 #import "AMUI.h"
@@ -56,6 +57,7 @@
 @interface AMSceneDelegate ()
 @property (nonatomic, strong) UITabBarController *tabs;
 @property (nonatomic, strong) UINavigationController *filesNav;
+@property (nonatomic, strong) AMFilesSplitViewController *filesSplit;
 @property (nonatomic, strong) UINavigationController *photosNav;
 @end
 
@@ -77,8 +79,12 @@
     UINavigationController *photos = [self navWithRoot:[AMPhotosViewController new] title:L(@"相册") symbol:@"photo.on.rectangle" selected:@"photo.fill.on.rectangle.fill"];
     self.photosNav = photos;
     UINavigationController *settings = [self navWithRoot:[AMSettingsViewController new] title:L(@"设置") symbol:@"gearshape" selected:@"gearshape.fill"];
+    // Files: list + detail columns on wide screens (iPhone Duo unfolded, iPad); a single list when folded.
+    self.filesSplit = [[AMFilesSplitViewController alloc] initWithFilesNavigationController:self.filesNav];
+    self.filesSplit.tabBarItem = self.filesNav.tabBarItem;
     self.tabs = [UITabBarController new];
-    self.tabs.viewControllers = @[ self.filesNav, photos, settings ];
+    self.tabs.viewControllers = @[ self.filesSplit, photos, settings ];
+    [AMUI configureTabBarController:self.tabs];
     self.window.rootViewController = self.tabs;
     [self.window makeKeyAndVisible];
 
@@ -121,7 +127,7 @@
 /// Switches to the Files tab, navigates to the item's folder and highlights it.
 - (void)showInFiles:(NSURL *)url {
     [self.tabs.presentedViewController dismissViewControllerAnimated:NO completion:nil];
-    self.tabs.selectedViewController = self.filesNav;
+    self.tabs.selectedViewController = self.filesSplit;
     [self.filesNav popToRootViewControllerAnimated:NO];
     NSURL *docs = AMUI.documentsURL.URLByResolvingSymlinksInPath;
     NSURL *parent = url.URLByDeletingLastPathComponent.URLByResolvingSymlinksInPath;

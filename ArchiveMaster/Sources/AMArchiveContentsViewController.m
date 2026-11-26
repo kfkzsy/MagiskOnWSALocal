@@ -16,6 +16,11 @@
 
 @implementation AMArchiveContentsViewController
 
+- (void)viewWillLayoutSubviews {
+    [super viewWillLayoutSubviews];
+    [AMUI applyReadableMarginsToTableView:self.tableView];
+}
+
 - (instancetype)initWithArchive:(NSURL *)archive destination:(NSURL *)destination {
     if ((self = [super initWithStyle:UITableViewStyleInsetGrouped])) {
         _archive = archive;
@@ -92,7 +97,7 @@
 - (void)finishWith:(NSURL *)result {
     if (!result) return;
     void (^cb)(NSURL *) = self.onExtracted;
-    [self.navigationController popViewControllerAnimated:YES];
+    if (self.navigationController.viewControllers.firstObject != self) [self.navigationController popViewControllerAnimated:YES];
     if (cb) cb(result);
 }
 

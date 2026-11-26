@@ -345,3 +345,5 @@
 "今天 %@" = "Today %@";
 "昨天 %@" = "Yesterday %@";
 "未命名" = "Untitled";
+"未选择文件" = "No File Selected";
+"轻点左侧的文件可以在这里预览；轻点压缩包可以查看其中的内容。" = "Tap a file on the left to preview it here. Tap an archive to see what’s inside.";

@@ -25,13 +25,14 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.view.backgroundColor = [UIColor colorWithWhite:0 alpha:0.3];
+    BOOL glass = AMUI.hasLiquidGlass;
+    self.view.backgroundColor = [UIColor colorWithWhite:0 alpha:glass ? 0.2 : 0.3];
 
-    UIVisualEffectView *card = [[UIVisualEffectView alloc] initWithEffect:[UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemThickMaterial]];
+    UIVisualEffectView *card = [[UIVisualEffectView alloc] initWithEffect:[AMUI glassEffectWithFallback:UIBlurEffectStyleSystemThickMaterial interactive:NO]];
     card.translatesAutoresizingMaskIntoConstraints = NO;
-    card.layer.cornerRadius = 14;
+    card.layer.cornerRadius = glass ? 34 : 14;  // iOS 26 alerts are rounder and concentric with the screen
     card.layer.cornerCurve = kCACornerCurveContinuous;
-    card.clipsToBounds = YES;
+    card.clipsToBounds = !glass;
     [self.view addSubview:card];
 
     UIImageView *icon = [[UIImageView alloc] initWithImage:[AMUI symbol:self.symbolName pointSize:34]];
@@ -72,37 +73,54 @@
     stack.translatesAutoresizingMaskIntoConstraints = NO;
     [card.contentView addSubview:stack];
 
-    UIView *separator = [UIView new];
-    separator.backgroundColor = UIColor.separatorColor;
-    separator.translatesAutoresizingMaskIntoConstraints = NO;
-    [card.contentView addSubview:separator];
-
-    self.cancelButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    [self.cancelButton setTitle:L(@"取消") forState:UIControlStateNormal];
-    self.cancelButton.titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
-    self.cancelButton.titleLabel.adjustsFontForContentSizeCategory = YES;
-    self.cancelButton.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.cancelButton addTarget:self action:@selector(cancelTapped) forControlEvents:UIControlEventTouchUpInside];
-    [card.contentView addSubview:self.cancelButton];
-
-    CGFloat hairline = 1.0 / UIScreen.mainScreen.scale;
-    [NSLayoutConstraint activateConstraints:@[
-        [card.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
-        [card.centerYAnchor constraintEqualToAnchor:self.view.centerYAnchor],
-        [card.widthAnchor constraintEqualToConstant:280],
-        [stack.topAnchor constraintEqualToAnchor:card.contentView.topAnchor constant:20],
-        [stack.leadingAnchor constraintEqualToAnchor:card.contentView.leadingAnchor constant:20],
-        [stack.trailingAnchor constraintEqualToAnchor:card.contentView.trailingAnchor constant:-20],
-        [separator.topAnchor constraintEqualToAnchor:stack.bottomAnchor constant:16],
-        [separator.leadingAnchor constraintEqualToAnchor:card.contentView.leadingAnchor],
-        [separator.trailingAnchor constraintEqualToAnchor:card.contentView.trailingAnchor],
-        [separator.heightAnchor constraintEqualToConstant:hairline],
-        [self.cancelButton.topAnchor constraintEqualToAnchor:separator.bottomAnchor],
-        [self.cancelButton.leadingAnchor constraintEqualToAnchor:card.contentView.leadingAnchor],
-        [self.cancelButton.trailingAnchor constraintEqualToAnchor:card.contentView.trailingAnchor],
-        [self.cancelButton.heightAnchor constraintGreaterThanOrEqualToConstant:44],
-        [self.cancelButton.bottomAnchor constraintEqualToAnchor:card.contentView.bottomAnchor],
-    ]];
+    if (glass) {
+        // iOS 26 style: a capsule button inside the card.
+        UIButtonConfiguration *cfg = AMUI.secondaryButtonConfiguration;
+        cfg.title = L(@"取消");
+        self.cancelButton = [UIButton buttonWithConfiguration:cfg primaryAction:nil];
+        [self.cancelButton addTarget:self action:@selector(cancelTapped) forControlEvents:UIControlEventTouchUpInside];
+        [stack addArrangedSubview:self.cancelButton];
+        [stack setCustomSpacing:20 afterView:self.percentLabel];
+        [NSLayoutConstraint activateConstraints:@[
+            [card.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
+            [card.centerYAnchor constraintEqualToAnchor:self.view.centerYAnchor],
+            [card.widthAnchor constraintEqualToConstant:300],
+            [stack.topAnchor constraintEqualToAnchor:card.contentView.topAnchor constant:24],
+            [stack.leadingAnchor constraintEqualToAnchor:card.contentView.leadingAnchor constant:22],
+            [stack.trailingAnchor constraintEqualToAnchor:card.contentView.trailingAnchor constant:-22],
+            [stack.bottomAnchor constraintEqualToAnchor:card.contentView.bottomAnchor constant:-22],
+        ]];
+    } else {
+        UIView *separator = [UIView new];
+        separator.backgroundColor = UIColor.separatorColor;
+        separator.translatesAutoresizingMaskIntoConstraints = NO;
+        [card.contentView addSubview:separator];
+        self.cancelButton = [UIButton buttonWithType:UIButtonTypeSystem];
+        [self.cancelButton setTitle:L(@"取消") forState:UIControlStateNormal];
+        self.cancelButton.titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
+        self.cancelButton.titleLabel.adjustsFontForContentSizeCategory = YES;
+        self.cancelButton.translatesAutoresizingMaskIntoConstraints = NO;
+        [self.cancelButton addTarget:self action:@selector(cancelTapped) forControlEvents:UIControlEventTouchUpInside];
+        [card.contentView addSubview:self.cancelButton];
+        CGFloat hairline = 1.0 / MAX(1.0, self.traitCollection.displayScale);
+        [NSLayoutConstraint activateConstraints:@[
+            [card.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
+            [card.centerYAnchor constraintEqualToAnchor:self.view.centerYAnchor],
+            [card.widthAnchor constraintEqualToConstant:280],
+            [stack.topAnchor constraintEqualToAnchor:card.contentView.topAnchor constant:20],
+            [stack.leadingAnchor constraintEqualToAnchor:card.contentView.leadingAnchor constant:20],
+            [stack.trailingAnchor constraintEqualToAnchor:card.contentView.trailingAnchor constant:-20],
+            [separator.topAnchor constraintEqualToAnchor:stack.bottomAnchor constant:16],
+            [separator.leadingAnchor constraintEqualToAnchor:card.contentView.leadingAnchor],
+            [separator.trailingAnchor constraintEqualToAnchor:card.contentView.trailingAnchor],
+            [separator.heightAnchor constraintEqualToConstant:hairline],
+            [self.cancelButton.topAnchor constraintEqualToAnchor:separator.bottomAnchor],
+            [self.cancelButton.leadingAnchor constraintEqualToAnchor:card.contentView.leadingAnchor],
+            [self.cancelButton.trailingAnchor constraintEqualToAnchor:card.contentView.trailingAnchor],
+            [self.cancelButton.heightAnchor constraintGreaterThanOrEqualToConstant:44],
+            [self.cancelButton.bottomAnchor constraintEqualToAnchor:card.contentView.bottomAnchor],
+        ]];
+    }
     self.view.accessibilityViewIsModal = YES;
 }
 
@@ -117,7 +135,13 @@
 
 - (void)cancelTapped {
     self.cancelButton.enabled = NO;
-    [self.cancelButton setTitle:L(@"正在取消…") forState:UIControlStateDisabled];
+    if (self.cancelButton.configuration) {
+        UIButtonConfiguration *c = self.cancelButton.configuration;
+        c.title = L(@"正在取消…");
+        self.cancelButton.configuration = c;
+    } else {
+        [self.cancelButton setTitle:L(@"正在取消…") forState:UIControlStateDisabled];
+    }
     if (self.cancelHandler) self.cancelHandler();
 }
 

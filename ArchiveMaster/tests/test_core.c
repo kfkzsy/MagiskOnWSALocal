@@ -152,6 +152,27 @@ static void test_filter_and_passwords(void) {
     printf("  password list + selective extract ok\n");
 }
 
+/* ZipCrypto's one-byte password check lets ~1/256 wrong passwords through; they must still be
+ * reported as a wrong password, not as a damaged archive. */
+static void test_zipcrypto_wrong_password_stress(void) {
+    char out[1200], dest[1200], in[1200], err[512] = "";
+    snprintf(in, sizeof in, "%s/src/单个文件.txt", W);
+    snprintf(out, sizeof out, "%s/zc.zip", W);
+    snprintf(dest, sizeof dest, "%s/zc", W);
+    const char *inputs[] = { in };
+    int wrong = 0;
+    for (int i = 0; i < 1000; i++) {
+        am_write_opts wo = { .format = AM_FMT_ZIP, .level = 1, .password = "right", .encryption = AM_ENC_ZIPCRYPTO };
+        unlink(out);
+        if (am_create(out, inputs, 1, &wo, NULL, NULL, err, sizeof err) != AM_OK) { wrong++; continue; }
+        am_read_opts bad = { .password = "wrong" };
+        int rc = am_extract(out, dest, &bad, NULL, NULL, err, sizeof err);
+        if (rc != AM_BAD_PASSWORD) { wrong++; printf("    iteration %d: rc=%d %s\n", i, rc, err); }
+    }
+    CHECK(wrong == 0, "%d of 1000 wrong-password attempts misreported", wrong);
+    printf("  ZipCrypto wrong-password stress (1000x) ok\n");
+}
+
 static void test_cancel(void) {
     char out[1200], in[1200], err[512] = "";
     snprintf(in, sizeof in, "%s/src/测试文件夹", W);
@@ -260,6 +281,7 @@ int main(int argc, char **argv) {
     test_password(AM_ENC_AES256);
     test_password(AM_ENC_ZIPCRYPTO);
     test_filter_and_passwords();
+    test_zipcrypto_wrong_password_stress();
     test_cancel();
     test_not_archive();
     test_gbk(argv[2]);

@@ -327,7 +327,14 @@ int am_extract_volumes(const char *const *volumes, int count, const char *dest_d
         for (;;) {
             r = archive_read_data_block(a, &buf, &size, &offset);
             if (r == ARCHIVE_EOF) break;
-            if (r < ARCHIVE_WARN) { rc = classify_read_error(a, opts, err, errlen); break; }
+            if (r < ARCHIVE_WARN) {
+                rc = classify_read_error(a, opts, err, errlen);
+                /* ZipCrypto only checks one byte of the password, so ~1 in 256 wrong passwords get
+                 * past the check and then fail as a decompression/CRC error. For an encrypted entry
+                 * read with a password, that means the password was wrong, not that the file is damaged. */
+                if (rc == AM_ERR && has_pw && archive_entry_is_encrypted(e)) rc = AM_BAD_PASSWORD;
+                break;
+            }
             if (archive_write_data_block(ext, buf, size, offset) < ARCHIVE_WARN) {
                 set_err(err, errlen, "%s", arc_err(ext));
                 rc = AM_ERR;

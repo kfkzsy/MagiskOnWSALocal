@@ -17,6 +17,11 @@
 
 @implementation AMFolderPickerViewController
 
+- (void)viewWillLayoutSubviews {
+    [super viewWillLayoutSubviews];
+    [AMUI applyReadableMarginsToTableView:self.tableView];
+}
+
 + (void)presentFrom:(UIViewController *)vc title:(NSString *)title actionTitle:(NSString *)actionTitle excluded:(NSArray<NSURL *> *)excluded onPick:(void (^)(NSURL *))onPick {
     AMFolderPickerViewController *root = [[AMFolderPickerViewController alloc] initWithDirectory:AMUI.documentsURL actionTitle:actionTitle excluded:excluded onPick:onPick];
     root.navigationItem.prompt = title;
@@ -136,6 +141,11 @@
 @end
 
 @implementation AMInfoViewController
+
+- (void)viewWillLayoutSubviews {
+    [super viewWillLayoutSubviews];
+    [AMUI applyReadableMarginsToTableView:self.tableView];
+}
 
 + (void)presentForURL:(NSURL *)url from:(UIViewController *)vc {
     AMInfoViewController *info = [[AMInfoViewController alloc] initWithStyle:UITableViewStyleInsetGrouped];

@@ -58,6 +58,23 @@ extern NSNotificationName const AMCompressMediaNotification;
 + (UIImage *)symbol:(NSString *)name;
 + (UIImage *)symbol:(NSString *)name pointSize:(CGFloat)size;
 
+#pragma mark Liquid Glass (iOS 26+) with fallbacks for earlier systems
+
+/// YES on iOS 26 and later, where the system uses the Liquid Glass design.
++ (BOOL)hasLiquidGlass;
+/// UIGlassEffect on iOS 26+, otherwise a blur material of `fallback` style.
++ (UIVisualEffect *)glassEffectWithFallback:(UIBlurEffectStyle)fallback interactive:(BOOL)interactive;
+/// Primary action button: prominent glass on iOS 26+, filled capsule before.
++ (UIButtonConfiguration *)prominentButtonConfiguration;
+/// Secondary action button: glass on iOS 26+, gray capsule before.
++ (UIButtonConfiguration *)secondaryButtonConfiguration;
+/// Tab bar that shrinks while scrolling (iOS 26+).
++ (void)configureTabBarController:(UITabBarController *)tabs;
+/// Navigation subtitle (iOS 26+). Returns NO when the system has no subtitle support.
++ (BOOL)setSubtitle:(nullable NSString *)subtitle forNavigationItem:(UINavigationItem *)item;
+/// Keeps inset-grouped forms at a comfortable reading width on wide screens (iPad, iPhone Duo unfolded).
++ (void)applyReadableMarginsToTableView:(UITableView *)tableView;
+
 @end
 
 /// Small factory for HIG-style form rows used by the option sheets and Settings.

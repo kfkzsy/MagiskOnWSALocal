@@ -17,6 +17,11 @@ static const NSInteger kLevelValues[] = { 0, 1, 6, 9 };
 
 @implementation AMSettingsViewController
 
+- (void)viewWillLayoutSubviews {
+    [super viewWillLayoutSubviews];
+    [AMUI applyReadableMarginsToTableView:self.tableView];
+}
+
 - (instancetype)init {
     return [super initWithStyle:UITableViewStyleInsetGrouped];
 }
@@ -177,6 +182,11 @@ static const NSInteger kLevelValues[] = { 0, 1, 6, 9 };
 
 @implementation AMPasswordBookViewController
 
+- (void)viewWillLayoutSubviews {
+    [super viewWillLayoutSubviews];
+    [AMUI applyReadableMarginsToTableView:self.tableView];
+}
+
 - (instancetype)init {
     return [super initWithStyle:UITableViewStyleInsetGrouped];
 }
@@ -269,6 +279,11 @@ static const NSInteger kLevelValues[] = { 0, 1, 6, 9 };
 @end
 
 @implementation AMFormatsViewController
+
+- (void)viewWillLayoutSubviews {
+    [super viewWillLayoutSubviews];
+    [AMUI applyReadableMarginsToTableView:self.tableView];
+}
 
 - (instancetype)init {
     return [super initWithStyle:UITableViewStyleInsetGrouped];
@@ -373,8 +388,8 @@ static const NSInteger kLevelValues[] = { 0, 1, 6, 9 };
     [NSLayoutConstraint activateConstraints:@[
         [tv.topAnchor constraintEqualToAnchor:self.view.topAnchor],
         [tv.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
-        [tv.leadingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor],
-        [tv.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor],
+        [tv.leadingAnchor constraintEqualToAnchor:self.view.readableContentGuide.leadingAnchor],
+        [tv.trailingAnchor constraintEqualToAnchor:self.view.readableContentGuide.trailingAnchor],
     ]];
 }
 
