@@ -42,11 +42,13 @@ clang -target "arm64-apple-ios$MIN_IOS" -isysroot "$SDK" -fuse-ld=lld -fobjc-arc
 # Bundle resources: binary Info.plist, PkgInfo, icons, localizations (zh-Hans is the development language).
 python3 -I "$ROOT/scripts/l10n_check.py" check "$ROOT/Resources/en.lproj/Localizable.strings" "$ROOT"/Sources/*.m
 APPDIR="$STAGE/Payload/$APP.app"
-python3 -I - "$ROOT/Resources/Info.plist" "$APPDIR" <<'PY'
+python3 -I - "$ROOT/Resources/Info.plist" "$APPDIR" "$LINK_SDK" <<'PY'
 import os, plistlib, sys
-src, app = sys.argv[1], sys.argv[2]
+src, app, sdk = sys.argv[1], sys.argv[2], sys.argv[3]
 with open(src, "rb") as f:
     info = plistlib.load(f)
+info["DTSDKName"] = "iphoneos" + sdk          # keep in step with the binary's LC_BUILD_VERSION
+info["DTPlatformVersion"] = sdk
 with open(os.path.join(app, "Info.plist"), "wb") as f:
     plistlib.dump(info, f, fmt=plistlib.FMT_BINARY)
 with open(os.path.join(app, "PkgInfo"), "w") as f:
@@ -62,6 +64,7 @@ python3 -I "$ROOT/scripts/make_icon.py" "$WORK/icons"
 cp "$WORK"/icons/AppIcon*x*.png "$STAGE/Payload/$APP.app/"
 cp "$WORK/icons/AppIcon1024.png" "$STAGE/iTunesArtwork"
 
-rm -f "$DIST/$APP.ipa"
-( cd "$STAGE" && zip -qry -X "$DIST/$APP.ipa" Payload iTunesArtwork )
-echo "built $DIST/$APP.ipa ($(du -h "$DIST/$APP.ipa" | cut -f1))"
+IPA_NAME="${IPA_NAME:-$APP.ipa}"
+rm -f "$DIST/$IPA_NAME"
+( cd "$STAGE" && zip -qry -X "$DIST/$IPA_NAME" Payload iTunesArtwork )
+echo "built $DIST/$IPA_NAME ($(du -h "$DIST/$IPA_NAME" | cut -f1))"

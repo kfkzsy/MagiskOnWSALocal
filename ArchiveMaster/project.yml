@@ -1,0 +1,102 @@
+# XcodeGen spec: `brew install xcodegen && scripts/vendor_thirdparty.sh && xcodegen`, then open
+# ArchiveMaster.xcodeproj. Builds with the real iOS SDK from Xcode (device + simulator).
+name: ArchiveMaster
+options:
+  bundleIdPrefix: io.github
+  deploymentTarget:
+    iOS: "15.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    IPHONEOS_DEPLOYMENT_TARGET: "15.0"
+    CLANG_ENABLE_OBJC_ARC: YES
+    CLANG_ENABLE_MODULES: YES
+    MARKETING_VERSION: "1.3.1"
+    CURRENT_PROJECT_VERSION: "5"
+    # liblzma's config.h comes from an arm64 build; Apple-silicon simulators are arm64 too.
+    EXCLUDED_ARCHS[sdk=iphonesimulator*]: x86_64
+
+targets:
+  ArchiveMaster:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+        excludes:
+          - AMCompat.m   # only for the Linux toolchain (Xcode's compiler-rt provides @available support)
+      - path: Resources
+        excludes:
+          - Info.plist   # the Linux build's plist; Xcode uses Xcode/Info.plist
+    dependencies:
+      - target: archive
+      - target: zstd
+      - target: lz4
+      - target: lzma
+      - sdk: libz.tbd
+      - sdk: libbz2.tbd
+      - sdk: libiconv.tbd
+      - sdk: libxml2.tbd
+    settings:
+      base:
+        INFOPLIST_FILE: Xcode/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.archivemaster
+        PRODUCT_NAME: ArchiveMaster
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        HEADER_SEARCH_PATHS: ["$(SRCROOT)/ThirdParty/libarchive/libarchive"]
+        CODE_SIGN_STYLE: Automatic
+        GCC_WARN_UNUSED_PARAMETER: NO
+
+  archive:
+    type: library.static
+    platform: iOS
+    sources: [ThirdParty/libarchive]
+    settings:
+      base:
+        GCC_PREPROCESSOR_DEFINITIONS: ["HAVE_CONFIG_H=1"]
+        HEADER_SEARCH_PATHS:
+          - "$(SRCROOT)/ThirdParty/libarchive/libarchive"
+          - "$(SRCROOT)/ThirdParty/zstd"
+          - "$(SRCROOT)/ThirdParty/lz4"
+          - "$(SRCROOT)/ThirdParty/xz/liblzma/api"
+          - "$(SDKROOT)/usr/include/libxml2"
+        GCC_WARN_INHIBIT_ALL_WARNINGS: YES
+
+  lzma:
+    type: library.static
+    platform: iOS
+    sources: [ThirdParty/xz]
+    settings:
+      base:
+        GCC_PREPROCESSOR_DEFINITIONS: ["HAVE_CONFIG_H=1", "TUKLIB_SYMBOL_PREFIX=lzma_"]
+        HEADER_SEARCH_PATHS:
+          - "$(SRCROOT)/ThirdParty/xz"
+          - "$(SRCROOT)/ThirdParty/xz/liblzma/api"
+          - "$(SRCROOT)/ThirdParty/xz/liblzma/common"
+          - "$(SRCROOT)/ThirdParty/xz/liblzma/check"
+          - "$(SRCROOT)/ThirdParty/xz/liblzma/lz"
+          - "$(SRCROOT)/ThirdParty/xz/liblzma/rangecoder"
+          - "$(SRCROOT)/ThirdParty/xz/liblzma/lzma"
+          - "$(SRCROOT)/ThirdParty/xz/liblzma/delta"
+          - "$(SRCROOT)/ThirdParty/xz/liblzma/simple"
+          - "$(SRCROOT)/ThirdParty/xz/common"
+        GCC_WARN_INHIBIT_ALL_WARNINGS: YES
+
+  zstd:
+    type: library.static
+    platform: iOS
+    sources: [ThirdParty/zstd]
+    settings:
+      base:
+        GCC_PREPROCESSOR_DEFINITIONS: ["ZSTD_MULTITHREAD=1", "ZSTD_LEGACY_SUPPORT=5", "XXH_NAMESPACE=ZSTD_", "DEBUGLEVEL=0", "ZSTD_DISABLE_ASM=1"]
+        HEADER_SEARCH_PATHS: ["$(SRCROOT)/ThirdParty/zstd", "$(SRCROOT)/ThirdParty/zstd/common"]
+        GCC_WARN_INHIBIT_ALL_WARNINGS: YES
+
+  lz4:
+    type: library.static
+    platform: iOS
+    sources: [ThirdParty/lz4]
+    settings:
+      base:
+        HEADER_SEARCH_PATHS: ["$(SRCROOT)/ThirdParty/lz4"]
+        GCC_WARN_INHIBIT_ALL_WARNINGS: YES

@@ -48,6 +48,17 @@ IPA 没有用开发者证书签名（只有链接器生成的 ad-hoc 签名）�
 - **AltStore / SideStore / Sideloadly**：用自己的 Apple ID 签名安装（免费账号 7 天需续签）。
 - **爱思助手、轻松签、全能签**等工具：用你自己的证书签名后安装。
 
+## 在 Mac 上用 Xcode 构建（推荐）
+
+```bash
+brew install xcodegen
+scripts/vendor_thirdparty.sh   # 第三方库源码 → ThirdParty/
+xcodegen                       # project.yml → ArchiveMaster.xcodeproj
+open ArchiveMaster.xcodeproj
+```
+
+当前状态、已知问题和排查方向见 [HANDOFF.md](HANDOFF.md)。
+
 ## 从源码构建（Linux）
 
 不需要 Mac 或 Xcode：用 clang + lld 和 Theos 项目发布的 iOS 16.5 SDK 头文件交叉编译，链接时把 SDK 版本记录为 27.1（`LINK_SDK`，见 `scripts/build_app.sh`），这样 iPhone Duo 会全屏运行、iOS 26 会启用 Liquid Glass。iOS 26/27 的新接口（如 `UIGlassEffect`）在运行时按需调用，旧系统上自动退回原样式。
